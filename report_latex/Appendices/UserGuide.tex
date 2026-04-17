@@ -1,0 +1,186 @@
+\chapter{User Guide}
+
+This appendix provides a step-by-step guide for setting up, running, and evaluating the synthetic ICU trajectory generation pipeline. All commands assume a Unix-like terminal (macOS or Linux) and are run from the project root directory.
+
+%==============================================================================
+\section{Prerequisites}
+%==============================================================================
+
+\begin{itemize}\tightlist
+    \item \textbf{Python 3.10 or later.}
+    \item \textbf{uv} (recommended) or \textbf{pip} for dependency management. Install uv via:
+    \begin{verbatim}
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    \end{verbatim}
+    \item \textbf{MIMIC-III access.} A credentialed PhysioNet account with a signed data use agreement is required to obtain the source data. See \url{https://mimic.physionet.org/gettingstarted/access/}.
+    \item \textbf{MIMIC-Extract output.} The pipeline expects hourly ICU tables produced by a MIMIC-Extract style workflow, placed under the project data directory.
+\end{itemize}
+
+%==============================================================================
+\section{Installation}
+%==============================================================================
+
+Clone the repository and install dependencies:
+
+\begin{verbatim}
+git clone <repository-url>
+cd synth-gen
+uv sync            # installs all dependencies from pyproject.toml
+\end{verbatim}
+
+Alternatively, with pip:
+
+\begin{verbatim}
+pip install -e .
+\end{verbatim}
+
+To verify the installation, run the test suite:
+
+\begin{verbatim}
+uv run pytest
+\end{verbatim}
+
+All unit tests should pass.
+
+%==============================================================================
+\section{Configuration}
+%==============================================================================
+
+Runtime configuration is split between script CLI flags and YAML defaults used by sweep/evaluation utilities. In particular, \texttt{scripts/02\_train\_model.py} exposes key training controls via CLI (for example \texttt{--nt}, \texttt{--n-noise}, \texttt{--max-rows}, \texttt{--n-jobs}, and \texttt{--batch-size}), while sweep and classifier defaults remain in config files.
+
+\begin{itemize}\tightlist
+    \item \textbf{data}: input CSV path, maximum training rows, excluded columns, static column list, and quality filters.
+    \item \textbf{model}: number of time levels (\texttt{nt}), noise multiplier (\texttt{n\_noise}), XGBoost parameters (number of estimators, max depth, learning rate), and whether to use the memory-efficient data iterator.
+    \item \textbf{generation}: number of synthetic samples, clipping range, and output path.
+\end{itemize}
+
+The TSTR classifier configuration is in \texttt{configs/mortality\_classifier\_config.yaml}, and sweep defaults are in \texttt{configs/forest\_flow\_config.yaml}.
+
+%==============================================================================
+\section{Pipeline Walkthrough}
+%==============================================================================
+
+The pipeline is executed as a sequence of numbered scripts. Each script produces artifacts consumed by subsequent steps.
+
+\subsection{Step 0: Prepare Hour-0 Data (Optional)}
+
+Extract the first hourly observation for each patient to train the IID hour-0 model:
+
+\begin{verbatim}
+uv run python scripts/00_prepare_hour0_data.py
+uv run python scripts/00b_fit_hour0_preprocessor.py
+uv run python scripts/00c_train_hour0_model.py
+\end{verbatim}
+
+\textbf{Outputs:}
+\begin{itemize}\tightlist
+    \item \texttt{packages/data/processed/hour0\_data.csv}
+    \item \texttt{models/hour0\_preprocessor.pkl}
+    \item \texttt{models/hour0\_forest\_flow.pkl}
+\end{itemize}
+
+\subsection{Step 1: Data Preprocessing}
+
+Create the autoregressive training table with lag-1 features:
+
+\begin{verbatim}
+uv run python scripts/01_preprocess_data.py
+\end{verbatim}
+
+This script identifies and drops columns that are 100\% missing, removes datetime columns, creates lagged features for each dynamic column, and separates static from dynamic features.
+
+\textbf{Output:} \texttt{packages/data/processed/autoregressive\_data.csv}
+
+\subsection{Step 1b: Fit Preprocessor}
+
+Fit the tabular preprocessor on the \emph{full} autoregressive dataset using chunked streaming:
+
+\begin{verbatim}
+uv run python scripts/01b_fit_preprocessor.py
+\end{verbatim}
+
+This step is critical: fitting on the full dataset ensures that all categorical values and numeric ranges are captured, even rare ones that might be absent in a training subsample.
+
+\textbf{Output:} \texttt{models/preprocessor\_full.pkl}
+
+\subsection{Step 2: Train Model}
+
+Train the autoregressive generative model. The backbone is selectable:
+
+\begin{verbatim}
+uv run python scripts/02_train_model.py --model-type hs3f
+uv run python scripts/02_train_model.py --model-type forest-flow
+\end{verbatim}
+
+The default backbone is \texttt{hs3f}. The script loads \texttt{models/preprocessor\_full.pkl}, transforms the training data, and fits the chosen model.
+
+\textbf{Output:} \texttt{models/forest\_flow\_model.pkl}
+
+\subsection{Step 3: Generate Synthetic Data}
+
+Generate synthetic patient trajectories:
+
+\begin{verbatim}
+uv run python scripts/03_generate_synthetic.py
+\end{verbatim}
+
+Optional flags include \texttt{--use-hour0} to integrate the hour-0 model for fully synthetic generation (no real initial conditions required), \texttt{--n-patients} to control the number of generated patients, and \texttt{--n-timesteps} to control trajectory length.
+
+\textbf{Output:} \texttt{results/synthetic\_patients.csv}
+
+\subsection{Step 4: Evaluate Quality (Standalone)}
+
+For standalone quality evaluation outside the sweep, compute distributional quality metrics on previously generated synthetic data:
+
+\begin{verbatim}
+uv run python scripts/04_evaluate_quality.py
+\end{verbatim}
+
+This computes per-feature KS statistics, correlation matrix Frobenius norm, and clinical range violation percentages. \textbf{Note:} When using the hyperparameter sweep (\texttt{run\_sweep.py}), quality evaluation is run automatically for each configuration; this standalone script is provided for ad-hoc inspection of a specific generated output.
+
+\textbf{Output:} \texttt{results/quality\_metrics.txt}
+
+%==============================================================================
+\section{Hyperparameter Sweep}
+%==============================================================================
+
+For systematic evaluation across configurations, use the unified sweep script:
+
+\begin{verbatim}
+uv run python scripts/run_sweep.py \
+    --train-rows 50000 \
+    --nt-values 1,5,10,20 \
+    --noise-values 1,3,5 \
+    --model-type hs3f
+\end{verbatim}
+
+Key options:
+\begin{itemize}\tightlist
+    \item \texttt{--train-rows}: number of autoregressive rows to train on.
+    \item \texttt{--nt-values}: comma-separated list of time discretisation levels to sweep.
+    \item \texttt{--noise-values}: comma-separated list of noise multipliers to sweep.
+    \item \texttt{--model-type}: backbone choice (\texttt{forest-flow} or \texttt{hs3f}).
+    \item \texttt{--synth-samples}: number of synthetic rows for evaluation.
+    \item \texttt{--skip-privacy-metrics}: skip privacy evaluation to reduce runtime.
+    \item \texttt{--refresh-transformed-cache}: force rebuild of cached transformed data.
+\end{itemize}
+
+The sweep trains both hour-0 and autoregressive models for each $(n_t, n_{\text{noise}})$ configuration, generates synthetic samples, runs multi-task TSTR and quality metrics, and appends results to \texttt{results/sweep\_results.csv}. The sweep is resumable: existing rows are skipped on rerun.
+
+To visualise sweep results:
+
+\begin{verbatim}
+uv run python scripts/plot_sweep_results.py
+\end{verbatim}
+
+%==============================================================================
+\section{Running Tests}
+%==============================================================================
+
+The project includes 54 unit tests covering quality metrics, privacy metrics, TSTR framework, autoregressive transformation, feature utilities, model training, and sampling:
+
+\begin{verbatim}
+uv run pytest                    # run all tests
+uv run pytest -v                 # verbose output
+uv run pytest packages/models/   # run model tests only
+\end{verbatim}

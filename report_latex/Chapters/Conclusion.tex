@@ -1,0 +1,81 @@
+\chapter{Conclusion and Future Work}
+
+%==============================================================================
+\section{Conclusion}
+%==============================================================================
+
+This project set out to investigate whether tree-based flow matching---a generative framework originally designed for static tabular data---could be extended to synthesise realistic sequential ICU patient trajectories from the MIMIC-III clinical database. The resulting system implements a two-stage autoregressive pipeline with two interchangeable model backbones (ForestFlow and HS3F), a multi-axis evaluation stack, and a reproducible hyperparameter sweep infrastructure. The key findings and contributions are summarised below, organised by the research questions posed in Chapter~1.
+
+\subsection{Research Question 1: Feasibility of Autoregressive Extension}
+
+The project demonstrates that tree-based flow matching can be adapted to sequential clinical data through autoregressive conditioning. By factorising the joint trajectory distribution into an IID hour-0 model and a conditional transition model---where each hourly state is generated given lagged dynamics and static covariates---the system produces multi-hour patient trajectories without requiring recurrent or attention-based neural architectures. The implementation trains entirely on CPUs using XGBoost regressors at discrete time levels, confirming the computational efficiency advantage of tree-based approaches.
+
+The hyperparameter sweep covers a $5 \times 8 = 40$-cell grid over $n_t \in \{1,3,5,7,9\}$ and $n_{\text{noise}} \in \{1,3,5,7,9,11,13,15\}$; $35$ of the $40$ cells are complete in the canonical log at the time of writing, with the remaining $5$ cells at $n_t=9, n_{\text{noise}}\ge 7$ still in progress. Across completed cells, clinical range violation rates drop from $\approx 30\%$ at low $n_t$ to $\approx 14\%$ at $n_t \geq 7$, and $n_t$ is the dominant hyperparameter for both utility and distributional quality. Feasibility is established, with the best single-seed configuration reaching ROC-AUC $\approx 0.74$ at $(n_t{=}5, n_{\text{noise}}{=}11)$ against a real-model baseline of $\approx 0.83$. Extrapolation analysis further suggests that the remaining gap is structural rather than hyperparameter-limited, indicating that further architectural improvements are needed for clinical-grade synthesis.
+
+\subsection{Research Question 2: Heterogeneous Feature Handling}
+
+Two model backbones were implemented to address this question. ForestFlow treats all target dimensions---including binary intervention flags---as continuous flows, while HS3F generates features sequentially, routing continuous variables through flow-matching regressors and categorical variables through XGBoost classifiers. The HS3F approach is architecturally better aligned with the mixed-type nature of ICU data, where binary treatment indicators (ventilation, vasopressors) and categorical variables coexist with continuous vital signs and laboratory measurements.
+
+Backbone-axis evidence at this stage is a three-seed matched-cell comparison at $(n_t{=}5, n_{\text{noise}}{=}5)$ that directly contrasts HS3F, ForestFlow, and the CTGAN/CRGAN baseline on identical training rows, synthetic budgets, and trajectory seeds (see Implementation, \S\textbf{Backbone Comparison and CTGAN Baseline}). The HS3F full-grid sweep is in progress; the ForestFlow and CTGAN full grids are not run and are flagged in \code{STATUS\_TRACKER.md} as an active next step. The matched cell shows that under balanced accuracy---the appropriate mortality metric given the ICU class imbalance---all three backbones cluster near chance (HS3F $0.501$, CTGAN $0.507$, ForestFlow $0.535$) with overlapping three-seed confidence intervals, so no backbone produces a downstream classifier that reliably discriminates mortality at a fixed threshold. On ROC-AUC, which is invariant to class prevalence and measures ranking quality, HS3F leads at $0.672$ against ForestFlow's $0.619$ and CTGAN's $0.497$: the HS3F--CTGAN gap is statistically significant, whereas the HS3F--ForestFlow gap is not significant under the three-seed budget (CI95 half-widths $\approx 0.021$ and $\approx 0.077$ respectively). On trajectory-level temporal coherence the matched cell separates the two tree-based backbones more cleanly than patient-level TSTR does: HS3F's autocorrelation distance ($0.22$) and temporal cross-feature correlation drift ($0.26$) are roughly half those of ForestFlow ($0.44$ and $0.41$), consistent with the HS3F design hypothesis that explicit categorical heads stabilise the autoregressive conditioning chain. HS3F also trains $\approx 32\%$ faster than ForestFlow at this cell ($2194$~s vs.\ $3224$~s) and $\approx 3.7\times$ faster than CTGAN. Taken together---ROC-AUC leadership, $\sim 2\times$ advantage on two of four trajectory-level metrics, privacy parity, and the lowest wall-clock cost---these signals are what motivate HS3F as the primary backbone used for the main sweep grid, with the caveat that the single matched cell and three-seed budget make the HS3F-over-ForestFlow ordering indicative rather than definitive.
+
+\subsection{Research Question 3: Utility and Privacy}
+
+The expanded TSTR evaluation reveals task-dependent utility transfer with a clear diagnostic pattern. Accuracy recovers to $\approx 0.90$ at selected high-$n_t$ cells, but F1 remains persistently low ($0.05$--$0.30$), peaking at $\approx 0.30$ versus a real-model F1 of $\approx 0.51$. This accuracy--F1 divergence confirms that the generator preserves majority-class structure but fails to maintain minority-class support---a class-collapse failure mode rather than a total distributional failure. The best single-seed ROC-AUC ($\approx 0.74$ at $(n_t{=}5, n_{\text{noise}}{=}11)$) reaches roughly 89\% of the real-model baseline, indicating meaningful but incomplete utility transfer.
+
+Privacy evaluation infrastructure is implemented and integrated into the sweep pipeline: DCR summary statistics (median, low-tail quantiles, exact-match rate), baseline and overfitting protection scores following SDMetrics formulations, and a DOMIAS-inspired membership inference attack reporting ROC-AUC and attacker advantage. The combination of proximity-based and attack-based metrics follows current best practice for synthetic health data \cite{kaabachi2025scoping,breugel2023domias}. The implementation explicitly cautions that DCR-style proximity metrics are useful diagnostics but do not constitute standalone privacy guarantees---a finding emphasised in recent work showing distance-only proxies can miss true membership leakage \cite{yao2025dcrdelusion}. Across all completed sweep cells, the DCR baseline-protection score saturates at $1.0$ under the SDMetrics $\min(1,\cdot)$ formulation, no synthetic record exactly matches a training record (\code{dcr\_exact\_match\_rate} $=0$ throughout), and the DOMIAS-style MIA ROC-AUC is confined to the narrow near-chance range $0.48$--$0.50$. Under the measured configurations the generator therefore does not exhibit gross memorisation. However, given that the main grid is currently single-seed (the three-seed uncertainty protocol has been executed at the matched backbone-comparison cell but not yet across the full grid), the attacker is a nearest-neighbour DOMIAS approximation rather than a full shadow-model attack, and the protection score saturates at the SDMetrics ceiling, these results should be interpreted as preliminary diagnostic indicators rather than definitive privacy bounds. Establishing formal release thresholds requires a larger-scale attack battery, which is deferred to future work.
+
+\subsection{Summary of Contributions}
+
+This project is an application-level contribution: it does not propose new generative algorithms but integrates existing methods into a new domain and problem structure. The principal contributions are:
+\begin{enumerate}\tightlist
+    \item \textbf{Domain adaptation:} A two-stage autoregressive pipeline extending tree-based flow matching from static tabular benchmarks to sequential ICU trajectory synthesis on MIMIC-III---a setting not previously explored with this method family.
+    \item \textbf{Dual-backbone implementation:} Both ForestFlow and HS3F backbones implemented from the original papers with a unified training, generation, and evaluation interface, enabling backbone comparison on identical clinical data.
+    \item \textbf{Multi-axis evaluation framework:} A single integrated evaluation pipeline that combines multi-task patient-level TSTR (mortality, ICU length-of-stay), distributional quality metrics (KS, correlation, clinical ranges), trajectory-level temporal coherence metrics (autocorrelation, transition smoothness, cross-feature drift), and privacy-risk diagnostics (DCR, DOMIAS-style membership inference), so that every sweep cell produces utility, fidelity, temporal, and privacy measurements on the same synthetic cohort.
+    \item \textbf{Reproducible experiment infrastructure:} Hyperparameter sweep with caching, resumability, degeneracy detection, and canonical result logging, supporting systematic investigation of configuration effects.
+    \item \textbf{Honest empirical analysis:} Application to MIMIC-III ICU data with transparent reporting of both strengths (correlation preservation, range violation reduction at high $n_t$) and limitations (F1 collapse, structural utility gap, single-dataset scope).
+\end{enumerate}
+
+%==============================================================================
+\section{Limitations}
+%==============================================================================
+
+The following limitations bound the conclusions of this work:
+\begin{itemize}\tightlist
+    \item \textbf{Single dataset:} All experiments use MIMIC-III via a MIMIC-Extract style pipeline. Generalisability to other hospitals, charting systems, or patient populations is untested.
+    \item \textbf{Asymmetric baseline capability:} The evaluation includes a CTGAN/CRGAN lower-bound baseline, but this baseline is not fully autoregressive with per-row conditioning in the transition stage. Therefore, results should be interpreted as comparison against a pragmatic reference baseline rather than a fully matched sequential architecture.
+    \item \textbf{Limited seed count per sweep cell:} The three-seed trajectory-sampling protocol (\code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} in \code{run\_sweep.py}) is currently exercised only at the matched backbone-comparison cell, where mean/std/CI95 are reported. The main-grid canonical CSV is single-seed; regenerating it under the three-seed protocol is the next active sweep step. Even at three seeds the sample size is small, and overlapping confidence intervals should be treated as non-deterministic, trend-level evidence.
+    \item \textbf{Persistent range violations:} Although range violation rates drop to $\approx 14\%$ at high $n_t$ (from $\approx 30\%$ at low $n_t$), this remains non-trivial for clinical applications and indicates that marginal distributions are not yet fully aligned.
+    \item \textbf{Class imbalance in TSTR:} The mortality F1 collapse suggests the synthetic training distribution does not preserve minority-class structure well enough for balanced downstream learning.
+    \item \textbf{Fixed-length trajectory generation:} The sweep generates fixed 48-hour trajectories for all patients, whereas real ICU stays range from 13 to 240 hours (median~48, mean~64). The sampling module (\code{sampling.py}) implements early-stopping infrastructure via a \code{discharge\_col} threshold, but no explicit per-hour discharge indicator is present in the generated feature set, so this mechanism is not activated during sweep evaluation. The stay-length KS metric quantifies this distributional mismatch.
+    \item \textbf{Limited temporal coherence evaluation:} Basic trajectory-level metrics (autocorrelation distance, transition smoothness, stay-length distribution, cross-feature temporal drift) have been implemented, but more sophisticated temporal assessments---such as dynamic time warping, Granger causality, or learned discriminators on trajectory windows---remain unexplored.
+\end{itemize}
+
+%==============================================================================
+\section{Future Work}
+%==============================================================================
+
+Several directions would strengthen and extend this work:
+
+\paragraph{ForestFlow backbone comparison.}
+The current sweep covers HS3F only. Running the same grid with the ForestFlow backbone would directly answer Research Question~2 and allow empirical comparison of all-continuous versus heterogeneous sequential generation on ICU data. Increasing the number of trajectory seeds and adding bootstrap confidence intervals would further strengthen conclusion validity.
+
+\paragraph{Baseline architecture parity.}
+Future work should add a truly autoregressive baseline with explicit per-row conditional generation (for example, a sequential GAN variant or a redesigned conditional wrapper around CTGAN-like components). Implementing this well requires architecture-level changes, expanded validation, and additional experimental budget beyond this thesis; this would enable stronger parity claims in backbone comparisons.
+
+\paragraph{Additional TSTR tasks.}
+Extending the TSTR framework with further clinical prediction tasks---such as readmission prediction or specific intervention timing---would provide a more robust assessment of downstream utility across diverse clinical endpoints.
+
+\paragraph{Advanced temporal coherence metrics.}
+The current trajectory-level metrics (autocorrelation distance, transition smoothness, stay-length KS, cross-feature temporal drift) provide a first-order assessment of temporal plausibility. More sophisticated approaches---such as dynamic time warping for trajectory similarity, Granger causality tests for lead--lag relationships between clinical variables, or learned trajectory discriminators---would provide deeper insight into temporal fidelity and could guide architectural improvements to the autoregressive generation scheme.
+
+\paragraph{Constraint enforcement and post-processing.}
+Incorporating clinical range clipping, logical constraint checking (e.g., sex--procedure consistency), or learned post-processing steps could reduce the high range violation rates observed in the current results.
+
+\paragraph{Subgroup fairness evaluation.}
+Stratifying evaluation metrics by demographic subgroups (age, sex, ethnicity) would reveal whether the generator disproportionately degrades fidelity or utility for minority populations, addressing a key ethical concern in synthetic health data.
+
+\paragraph{Cross-cohort replication.}
+Applying the pipeline to a second clinical dataset (e.g., eICU-CRD or a UK hospital system) would test external validity and the portability of the two-stage architecture.
+
+\paragraph{Privacy hardening.}
+Running a full battery of membership inference attacks with varied attacker knowledge assumptions, and establishing release thresholds for synthetic data sharing, would strengthen the privacy claims beyond the current diagnostic-level assessment.

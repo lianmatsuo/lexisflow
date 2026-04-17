@@ -1,0 +1,87 @@
+\chapter{Source Code}
+
+\begin{center}
+\textbf{Originality Statement}\\[0.5em]
+I verify that I am the sole author of the programs contained in this appendix, except where explicitly stated to the contrary.\\[1em]
+\textit{Lian Matsuo}\\
+\today
+\end{center}
+
+\vspace{1em}
+
+The complete source code is submitted alongside this report. The table below provides an overview of the key files and their roles in the system architecture.
+
+%==============================================================================
+\section{Source File Overview}
+%==============================================================================
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{File} & \textbf{Description} \\
+\midrule
+\multicolumn{2}{l}{\textbf{Data Processing (\code{packages/data/})}} \\
+\midrule
+\code{transformers.py} & Tabular preprocessor: label encoding for categoricals, binary rounding, streaming \code{partial\_fit()}, and inverse transform for human-readable export. \\
+\code{autoregressive.py} & Autoregressive data preparation: lag-1 feature creation, static/dynamic column separation, biophysical aggregation. \\
+\code{feature\_utils.py} & Centralised feature-type detection: identifies numeric, binary, and categorical columns using clinical domain knowledge. \\
+\code{loaders.py} & Data loading utilities for MIMIC-III derived CSV files. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Generative Models (\code{packages/models/})}} \\
+\midrule
+\code{forest\_flow.py} & ForestFlow backbone: conditional flow matching with XGBoost regressors at discrete time levels, Euler sampling, clean-condition principle. \\
+\code{hs3f.py} & HS3F backbone: heterogeneous sequential feature generation with flow-matching regressors for continuous and XGBoost classifiers for categorical targets. \\
+\code{iterator.py} & Memory-efficient \code{FlowMatchingDataIterator}: generates noise on-the-fly to avoid $n_{\text{noise}}\times$ data duplication. \\
+\code{sampling.py} & Autoregressive trajectory sampling: generates multi-hour patient trajectories by iteratively conditioning on previously generated states. \\
+\code{utils.py} & Shared model helper functions. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Evaluation (\code{packages/evaluation/})}} \\
+\midrule
+\code{quality\_metrics.py} & Distributional quality: KS statistics, correlation Frobenius norm, clinical range violation rates. \\
+\code{privacy\_metrics.py} & Privacy diagnostics: DCR summaries, baseline/overfitting protection scores, DOMIAS-style membership inference attack. \\
+\code{tstr\_framework.py} & Unified multi-task patient-level TSTR: mortality and ICU LOS classification using padded-sequence logistic-regression classifiers. \\
+\code{tstr.py} & Single-task TSTR evaluation (mortality prediction). \\
+\code{visualizations.py} & Metric visualisation utilities. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Clinical Prediction (\code{packages/mortality/})}} \\
+\midrule
+\code{model.py} & Mortality classifier: logistic regression baseline for TSTR evaluation. \\
+\code{preprocessor.py} & TSTR preprocessor: variable-length sequence padding for patient-level classification. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Pipeline Scripts (\code{scripts/})}} \\
+\midrule
+\code{00\_prepare\_hour0\_data.py} & Extract hour-0 patient states from MIMIC-III tables. \\
+\code{00b\_fit\_hour0\_preprocessor.py} & Fit IID preprocessor on hour-0 data. \\
+\code{00c\_train\_hour0\_model.py} & Train IID hour-0 generative model. \\
+\code{01\_preprocess\_data.py} & Create autoregressive training table with lag features. \\
+\code{01b\_fit\_preprocessor.py} & Fit preprocessor on full autoregressive dataset (streaming). \\
+\code{02\_train\_model.py} & Train autoregressive model (ForestFlow or HS3F). \\
+\code{03\_generate\_synthetic.py} & Generate synthetic patient trajectories. \\
+\code{04\_evaluate\_quality.py} & Compute distributional quality metrics. \\
+\code{05\_evaluate\_hour0\_model.py} & Evaluate hour-0 model quality. \\
+\code{run\_sweep.py} & Unified hyperparameter sweep with caching and resumability. \\
+\code{plot\_sweep\_results.py} & Visualise sweep results. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Unit Tests (\code{packages/*/tests/})}} \\
+\midrule
+\code{test\_autoregressive.py} & Tests for autoregressive transformation and lag feature creation. \\
+\code{test\_feature\_utils.py} & Tests for feature-type detection utilities. \\
+\code{test\_forest\_flow.py} & Tests for ForestFlow model training and sampling. \\
+\code{test\_hs3f.py} & Tests for HS3F model training and sampling. \\
+\code{test\_sampling.py} & Tests for autoregressive trajectory sampling. \\
+\code{test\_privacy\_metrics.py} & Tests for privacy metric correctness and edge cases. \\
+\code{test\_tstr\_framework.py} & Tests for multi-task TSTR evaluation framework. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Configuration}} \\
+\midrule
+\code{configs/forest\_flow\_config.yaml} & Model hyperparameters, data paths, and generation settings. \\
+\code{configs/mortality\_classifier\_config.yaml} & TSTR classifier configuration. \\
+\code{pyproject.toml} & Project metadata, Python version, and dependency specifications. \\
+\bottomrule
+\end{tabularx}
+\caption{Source file inventory with one-line descriptions.}
+\end{table}
+
+\textbf{Note:} Complete source code listings are submitted electronically as a companion archive. The program files used in the project examination are identical to the files uploaded to KEATS.

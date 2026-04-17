@@ -1,0 +1,160 @@
+\chapter{Results/Evaluation}
+
+%==============================================================================
+\section{Software Testing}
+%==============================================================================
+
+The evaluation subsystem is verified with deterministic unit tests before computationally expensive sweeps are executed. The tests, implemented with \code{pytest} in \code{packages/evaluation/tests/}, target metric correctness, edge-case handling, and report-schema stability \cite{pytestProject}.
+
+\subsection{Quality-Metric Tests}
+
+The following functions are covered:
+\begin{itemize}\tightlist
+    \item \code{compute\_ks\_statistics},
+    \item \code{compute\_correlation\_frobenius},
+    \item \code{compute\_clinical\_range\_violations}.
+\end{itemize}
+These tests check expected behavior under controlled fixtures:
+\begin{itemize}\tightlist
+    \item identical real/synthetic distributions produce near-zero KS and near-zero correlation-matrix difference;
+    \item shifted distributions produce larger KS values;
+    \item non-overlapping or insufficient numeric columns return \code{NaN} for correlation metrics rather than failing;
+    \item clinical-range checks return exact violation percentages for synthetic fixtures with known out-of-range values.
+\end{itemize}
+
+This structure provides an implementation-level regression guard: if code changes alter known outcomes on fixed fixtures, failures are surfaced immediately.
+
+\subsection{Privacy-Metric Tests}
+
+Privacy tests target the principal leakage scenarios represented in \code{privacy\_metrics.py}:
+\begin{itemize}\tightlist
+    \item duplicate synthetic rows sampled from training data should yield near-zero DCR median and high exact-match rate;
+    \item overfitting protection should decrease when synthetic rows are closer to training than holdout data;
+    \item DOMIAS-like membership attack scores are expected to exceed chance-level behavior in memorization-heavy fixtures;
+    \item integrated reports must always expose all expected sections (\code{dcr\_stats}, baseline/overfitting protection, membership inference).
+\end{itemize}
+
+These tests do not constitute a formal privacy proof; they verify that implemented diagnostics react directionally as expected under stress conditions.
+
+\subsection{What Is and Is Not Covered}
+
+The current suite focuses on unit-level correctness and defensive behavior (missing columns, \code{NaN}s, low-sample regimes). End-to-end statistical validity at MIMIC scale is assessed through the sweep protocol and subsequent analysis, rather than per-commit integration tests. This separation is intentional because full-grid experiments are computationally costly.
+
+%==============================================================================
+\section{Evaluation Methodology and Metric Rationale}
+%==============================================================================
+
+This section specifies the evaluation protocol used in this project. It focuses on methodological design and metric rationale, not numerical outcomes.
+
+\subsection{Sweep-Oriented Evaluation Protocol}
+
+Evaluation is operationalized as a reproducible sweep loop (\code{scripts/run\_sweep.py}) over $(n_t, n_{\text{noise}})$:
+\begin{enumerate}\tightlist
+    \item train hour-0 IID model and autoregressive model with the same hyperparameters;
+    \item generate synthetic rows conditioned on sampled real contexts;
+    \item evaluate utility (multi-task TSTR), statistical quality, and privacy;
+    \item append one canonical row to \code{results/sweep\_results.csv}.
+\end{enumerate}
+
+The sweep is resumable by design (existing rows are skipped), logs failed runs with explicit error fields, and maintains schema compatibility through migration checks. To reduce recomputation, transformed matrices are cached with signatures over source-table metadata and split-index hashes.
+
+\subsection{Baseline Scope and Interpretation}
+
+The evaluation includes a CTGAN/CRGAN-style baseline as a \emph{reference lower bound}, not as a fully matched autoregressive competitor. In the current implementation, CTGAN is trained on the transformed joint table but sampled without per-row autoregressive conditioning. This means it does not consume the full row-specific context vector at generation time in the same way as the ForestFlow and HS3F transition models.
+
+Making CTGAN fully autoregressive in this pipeline would require an architecture-level redesign (for example, a new sequential wrapper with explicit step-wise conditioning logic, state propagation, and compatibility checks across mixed continuous/categorical features), rather than a small hyperparameter or script-level modification. Delivering that redesign with adequate validation would expand the implementation and experiment surface beyond the scope of this thesis.
+
+Accordingly, CTGAN/CRGAN results are interpreted conservatively: they provide a practical baseline reference and lower-bound comparator for utility/quality/privacy trends, but they are not used to make strong claims about parity with fully conditional autoregressive generators.
+
+\subsection{Utility Evaluation via Multi-Task TSTR}
+
+Primary utility assessment follows the Train-on-Synthetic, Test-on-Real (TSTR) paradigm, a widely used protocol in synthetic healthcare-data evaluation \cite{esteban2018rcgan,yan2022benchmarking}. The core idea is to train a downstream clinical predictor on synthetic data only and evaluate it on real held-out patients; the resulting performance gap relative to a real-trained baseline quantifies how much predictive signal the synthetic generator preserves.
+
+\paragraph{Initial design: row-level TSTR.}
+
+The evaluation framework was initially implemented as a row-level TSTR protocol. Each synthetic row (one patient-hour) was treated as an independent training sample; the downstream classifier was a logistic-regression model fitted on individual rows; and the test set was a held-out split of real rows. Three clinical tasks were targeted: mortality prediction, vasopressor-use prediction, and ICU length-of-stay (LOS) category prediction.
+
+While straightforward to implement, this design was found to suffer from four structural pitfalls:
+
+\begin{enumerate}
+    \item \textbf{Patient-level data leakage.} Row-level train/test splitting does not respect patient boundaries. Multiple hourly observations from the same patient can appear in both training and evaluation sets. The downstream classifier can then exploit within-patient autocorrelations rather than the quality of the synthetic distribution, inflating TSTR scores independently of generator performance.
+
+    \item \textbf{Temporal structure blindness.} The autoregressive generator is explicitly designed to capture hour-to-hour dynamics within a patient trajectory. Row-level evaluation treats each hourly observation as independent and identically distributed, making it structurally blind to the temporal coherence properties that the generator is meant to preserve. A generator that reproduces correct marginals but entirely wrong temporal dynamics scores the same as a well-calibrated one under this protocol.
+
+    \item \textbf{Vasopressor task degeneration under row-level imbalance.} Vasopressor use is a sparse event: in the MIMIC-III ICU cohort, vasopressors are administered in a minority of patient-hours. At row level, a classifier can achieve high accuracy by predicting the negative class on nearly every row. This pathological majority-class collapse renders the vasopressor task uninformative as a utility signal, and is consistent with the F1 collapse behaviour observed in the sweep results (see Implementation chapter, §\textbf{Empirical Outcomes}).
+
+    \item \textbf{Granularity mismatch with clinical deployment.} Synthetic EHR data is generated for patient-level clinical use---mortality forecasting, LOS prediction, discharge planning. Evaluating at row granularity measures a proxy for this that is misaligned with the actual downstream application context.
+\end{enumerate}
+
+\paragraph{Revised design: patient-level sequence TSTR.}
+
+In response to these pitfalls, the TSTR framework was revised to operate at \emph{patient trajectory} level. Let $\mathcal{S}_i = \{\mathbf{x}_{i,0}, \ldots, \mathbf{x}_{i,T_i}\}$ denote the ordered sequence of hourly feature vectors for patient $i$, and let $y_i$ denote the patient-level label. The synthetic-trained sequence classifier $g_{\phi}$ is evaluated as:
+
+\begin{equation}
+\phi_{\text{synth}} = \arg\min_{\phi}\mathcal{L}(g_{\phi}(\mathcal{S}_{\text{synth}}), y_{\text{synth}}), \quad
+\text{evaluate } g_{\phi_{\text{synth}}} \text{ on } (\mathcal{S}_{\text{real,test}}, y_{\text{real,test}}).
+\end{equation}
+
+Patient-level splitting is performed by \code{subject\_id}: all timesteps from one patient remain in the same split, eliminating the leakage problem. The real patient cohort is split 70\,\% training / 30\,\% test (implemented as \code{test\_size=0.3} in \code{tstr\_framework.py}), with stratification on the task label where class support permits. Sequences are sorted by \code{hours\_in}, padded to a common length with a binary mask, flattened, and fed to a logistic-regression model (implemented as \code{\_PaddedSequenceClassifier} in \code{tstr\_framework.py}). This preserves temporal order and full-stay context per patient without requiring a recurrent or attention-based architecture; the mask encodes which timesteps are genuine observations versus padding.
+
+The vasopressor-use task was removed from the revised framework. At patient level, a binary ``ever received vasopressors'' label is more naturally defined, but vasopressor administration is a well-established marker of haemodynamic instability and septic shock severity that correlates strongly with both in-hospital mortality and prolonged ICU stay \cite{yan2022benchmarking}. As a consequence, a classifier trained to predict vasopressor use tends to recapitulate the same predictive signal as mortality and LOS classifiers, reducing its value as an independent utility dimension. The final framework evaluates two tasks implemented in \code{tstr\_framework.py}:
+
+\begin{itemize}\tightlist
+    \item mortality prediction (binary, patient-level),
+    \item ICU length-of-stay category prediction (multi-class, patient-level).
+\end{itemize}
+
+Task models use class-balanced logistic-regression baselines from scikit-learn \cite{pedregosa2011scikit} with \code{class\_weight="balanced"} to partially compensate for residual class imbalance. Reported metrics include accuracy, F1 (and macro F1 for multi-class), and ROC-AUC (binary or one-vs-rest macro) \cite{fawcett2006roc}. A real-trained baseline (train-real/test-real) is computed in parallel for comparison.
+
+\subsection{Statistical Quality Metrics}
+
+Complementary to TSTR, the project computes feature-space quality metrics in \code{quality\_metrics.py}:
+\begin{enumerate}\tightlist
+    \item \textbf{Average KS statistic} across common numeric features, via two-sample KS:
+    \begin{equation}
+    \overline{KS} = \frac{1}{|\mathcal{J}|}\sum_{j\in\mathcal{J}}\sup_x\left|F^{\text{real}}_j(x)-F^{\text{synth}}_j(x)\right|.
+    \end{equation}
+    \item \textbf{Correlation Frobenius norm}:
+    \begin{equation}
+    \Delta_{\text{corr}} = \left\|C_{\text{synth}} - C_{\text{real}}\right\|_{F}.
+    \end{equation}
+    \item \textbf{Clinical range violation percentage} over predefined physiologic bounds.
+\end{enumerate}
+
+This metric family aligns with synthetic-EHR benchmarking practice that combines distributional fidelity, relationship preservation, and plausibility checks \cite{yan2022benchmarking,kaabachi2025scoping}. The KS implementation relies on SciPy statistical tooling \cite{virtanen2020scipy}.
+
+\subsection{Privacy Evaluation Metrics}
+
+Privacy assessment in \code{privacy\_metrics.py} combines proximity diagnostics with attack-oriented indicators:
+\begin{itemize}\tightlist
+    \item DCR summary statistics (\code{median}, low-tail quantiles, exact-match rate),
+    \item DCR baseline protection score (synthetic versus random baseline),
+    \item DCR overfitting protection score (synthetic closeness to train versus holdout),
+    \item DOMIAS-inspired membership inference metrics (ROC-AUC, average precision, attacker advantage).
+\end{itemize}
+
+The DCR-based protection scores follow SDMetrics-style formulations \cite{sdmetricsPrivacyDocs}. Membership inference follows the attack perspective introduced in classical MIA literature and modern synthetic-data attacks \cite{shokri2017membership,breugel2023domias}. Average precision is reported alongside ROC-AUC for ranking quality under class-imbalance sensitivity \cite{davisGoadrich2006}. Recent work also motivates caution: distance-only metrics should not be interpreted as standalone privacy guarantees \cite{yao2025dcrdelusion}.
+
+\subsection{Trajectory-Level Quality Metrics}
+
+The per-row metrics above assess marginal fidelity but cannot detect temporal incoherence within patient trajectories. A generator that produces correct marginal distributions may still fail to capture hour-to-hour dynamics---for example, yielding heart-rate sequences that jump erratically rather than evolving smoothly. To address this gap, the evaluation pipeline includes four trajectory-level metrics implemented in \code{trajectory\_metrics.py}:
+
+\begin{enumerate}\tightlist
+    \item \textbf{Autocorrelation distance} (\code{autocorr\_distance}): For each vital sign, the lag-1 autocorrelation is computed per trajectory and summarised by median. The metric reports the mean absolute difference in per-feature median autocorrelation between real and synthetic trajectories. A value of~$0$ indicates that synthetic trajectories preserve real temporal dependency; values above~$\sim 0.3$ indicate substantial structure loss.
+
+    \item \textbf{Stay-length KS statistic} (\code{stay\_length\_ks}): A two-sample Kolmogorov--Smirnov test on the distribution of trajectory lengths (rows per \code{subject\_id}). Because the current generator produces fixed 48-hour trajectories while real ICU stays vary in length, this metric quantifies a known structural limitation of the fixed-window autoregressive scheme.
+
+    \item \textbf{Transition smoothness ratio} (\code{transition\_mse\_ratio}): The ratio of mean hourly absolute change in each vital sign, synthetic versus real. A ratio of~$1.0$ means transitions are equally smooth; values above~$1$ indicate rougher (jumpier) synthetic trajectories; values below~$1$ indicate over-smoothed trajectories.
+
+    \item \textbf{Temporal cross-feature correlation drift} (\code{temporal\_corr\_drift}): For clinically meaningful feature pairs (heart rate vs.\ MAP, systolic vs.\ diastolic BP, SpO\textsubscript{2} vs.\ respiratory rate), the within-trajectory Pearson correlation is computed per patient, and the metric reports the mean absolute difference in median correlation between real and synthetic data. This captures whether the generator preserves physiological relationships \emph{within} individual trajectories, not just in aggregate.
+\end{enumerate}
+
+These metrics are computed before per-row quality metrics in the sweep loop, using the raw DataFrames that retain \code{subject\_id} and \code{hours\_in} for grouping. Trajectories shorter than four timesteps are excluded to ensure stable autocorrelation estimates. Seed-level uncertainty (mean, standard deviation, CI95) is defined in the \code{SWEEP\_RESULT\_COLUMNS} schema and is populated whenever the trajectory-sampling seed list \code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} in \code{run\_sweep.py} has length greater than one. In the results reported here, the three-seed protocol is exercised at the matched backbone-comparison cell; the main-grid canonical CSV is currently single-seed, and its point estimates should be treated as trend-level rather than statistically bounded.
+
+\subsection{Model-Screening Guardrail}
+
+To reduce accidental over-interpretation of clearly weak runs, the sweep records a \code{degenerate\_flag} when the two patient-level synthetic-side utility metrics are simultaneously near-random: mortality ROC-AUC $\leq 0.55$ and LOS macro-F1 $\leq 0.15$. This is an experiment-management heuristic and is not used as a formal inferential criterion; flagged rows are retained in the sweep CSV rather than dropped, preserving an audit trail of degenerate configurations.
+
+\subsection{Reporting Scope}
+
+This chapter defines the \emph{evaluation protocol}. Numerical outcomes across the full hyperparameter sweep grid are presented in the Implementation chapter (\S~\textbf{Empirical Outcomes from the Hyperparameter Sweep}), with figures covering TSTR utility, distributional quality, computational cost, and extrapolation analysis.

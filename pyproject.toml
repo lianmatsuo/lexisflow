@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools:build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["packages*"]
+
+[project]
+name = "synth-gen"
+version = "0.1.0"
+description = "Healthcare dataset curation for ML model training"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.12.0",
+    "copulas>=0.9.0",
+    "ctgan>=0.7.0",
+    "dython>=0.7.11",
+    "imbalanced-learn>=0.11.0",
+    "joblib>=1.3.0",
+    "matplotlib>=3.7.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "seaborn>=0.12.0",
+    "pre-commit>=4.5.0",
+    "psutil>=5.9.0",
+    "pyarrow>=14.0.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "ruff>=0.14.6",
+    "scikit-learn>=1.3.0",
+    "scipy>=1.11.0",
+    "streamlit>=1.28.0",
+    "tqdm>=4.65.0",
+    "urllib3>=2.0.0",
+    "xgboost>=2.0.0",
+    "duckdb>=1.4.2",
+    "graphifyy>=0.4.18",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+# Thread caps must run before NumPy/torch (see packages/models/ctgan_adapter.py).
+[tool.ruff.lint.per-file-ignores]
+"packages/models/ctgan_adapter.py" = ["E402"]

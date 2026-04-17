@@ -1,0 +1,140 @@
+\chapter{Theoretical Foundations: Heterogeneous Forest-Flow for ICU Trajectories}
+
+%==============================================================================
+\section{Problem Formulation}
+%==============================================================================
+
+We model deidentified ICU trajectories derived from MIMIC-III \cite{johnson2016mimic}
+through the MIMIC-Extract style hourly representation pipeline \cite{wang2020mimicextract}.
+For patient $i$, let:
+\begin{itemize}\tightlist
+    \item $\mathbf{s}_i \in \mathbb{R}^{d_s}$: static covariates (demographics/admission context),
+    \item the dynamic state at hour $t$ be the tuple
+    $\mathbf{x}_{i,t}=\bigl(\mathbf{x}_{i,t}^{\mathrm{cont}},\mathbf{x}_{i,t}^{\mathrm{bin}},\mathbf{x}_{i,t}^{\mathrm{cat}}\bigr)$:
+    continuous features $\mathbf{x}_{i,t}^{\mathrm{cont}}\in\mathbb{R}^{d_{\mathrm{cont}}}$,
+    binary features $\mathbf{x}_{i,t}^{\mathrm{bin}}\in\{0,1\}^{d_{\mathrm{bin}}}$,
+    and categorical features with components $x_{i,t,j}^{\mathrm{cat}}\in\mathcal{C}_j$ for finite label sets $\mathcal{C}_j$, $j=1,\ldots,d_{\mathrm{cat}}$,
+    \item $T_i$: observed trajectory length.
+\end{itemize}
+Let $d_x=d_{\mathrm{cont}}+d_{\mathrm{bin}}+d_{\mathrm{cat}}$ denote the total number of dynamic features (a fixed ordering is assumed for sequential generation in \S\ref{sec:hs3f}).
+
+Clinically, $\mathbf{x}_{i,t}$ lives in a mixed-type semantic space.
+During training, the same information is encoded numerically---real-valued coordinates for continuous quantities, $\{0,1\}$ for binaries, and integer codes or expanded columns for categoricals---so that gradient-boosted regressors for flow targets and classifiers for discrete heads receive tensors in $\mathbb{R}^{d_{\mathrm{enc}}}$ (or integer labels), while the generative semantics remain mixed-type as in HS3F \cite{akazan2024hs3f}.
+Where a single vector symbol appears below, it denotes the real vector associated with continuously transported coordinates (or their encoded counterparts), not an ambient $\mathbb{R}^{d_x}$ embedding of the full state.
+
+The joint law of the trajectory factorizes as:
+\begin{equation}
+p(\mathbf{x}_{i,0:T_i} \mid \mathbf{s}_i)
+= p(\mathbf{x}_{i,0} \mid \mathbf{s}_i)\prod_{t=1}^{T_i}p(\mathbf{x}_{i,t}\mid \mathbf{x}_{i,t-1}, \mathbf{s}_i).
+\end{equation}
+Each factor is shorthand for the appropriate product of conditional densities (continuous coordinates) and mass functions (discrete coordinates) consistent with the chosen factorization (e.g.\ feature-wise in HS3F).
+
+We adopt a two-stage factorization with two coupled generators:
+\begin{enumerate}\tightlist
+    \item an IID hour-0 model for the joint initial vector $p(\mathbf{s},\mathbf{x}_{0})$,
+    \item a conditional autoregressive model for transitions $p(\mathbf{x}_{t}\mid\mathbf{x}_{t-1},\mathbf{s})$.
+\end{enumerate}
+
+Thus the initial timestep need not be represented as if it were a lagged copy of a non-existent prior state.
+The literature positioning of Forest-Flow and HS3F relative to other tabular and sequential generators (CTGAN, TimeGAN, TabDDPM, TabSyn, GReaT, REaLTabFormer) is discussed in the Background chapter and is not repeated here.
+
+%==============================================================================
+\section{Flow Matching Foundation}
+%==============================================================================
+
+\subsection{Conditional Flow Matching}
+
+Flow Matching \cite{lipman2023flow} learns a time-indexed vector field that transforms noise to data on a real vector space aligned with continuously modeled coordinates (encoded as needed).
+For such a target vector $\mathbf{x}$, Gaussian noise $\mathbf{z}\sim\mathcal{N}(0,I)$, and $t\sim\mathrm{Unif}[0,1]$:
+\begin{equation}
+\mathbf{x}_t = (1-t)\mathbf{z} + t\mathbf{x}.
+\end{equation}
+
+The supervised target field for independent conditional flow matching \cite{tong2024cfm} is:
+\begin{equation}
+\mathbf{u}_t = \mathbf{x} - \mathbf{z},
+\end{equation}
+and the model minimizes:
+\begin{equation}
+\mathcal{L} = \mathbb{E}_{\mathbf{x},\mathbf{z},t}\left[\|\mathbf{v}_{\theta}(\mathbf{x}_t,\mathbf{c}) - \mathbf{u}_t\|_2^2\right],
+\end{equation}
+where $\mathbf{c}$ is the condition vector.
+
+\subsection{Clean-Condition Principle}
+
+In conditional flow matching for autoregressive rollouts, noise is injected only into target coordinates passed to continuous flow heads (their numeric encoding). In the implementation described later, categorical components are excluded from flow interpolation; binary components are currently represented as quantitative coordinates and may therefore be transported by the same flow mechanism.
+Condition features (static covariates and lagged dynamics) remain unperturbed during training:
+\begin{equation}
+\mathrm{input} = [\mathbf{x}_t^{\text{noisy}} \mid \mathbf{c}_{\text{clean}}].
+\end{equation}
+Here $\mathbf{x}_t^{\text{noisy}}$ denotes the noisy coordinates routed through flow regressors (continuous plus binary when typed quantitative); $\mathbf{c}_{\text{clean}}$ carries clean encoded context including lagged mixed-type information.
+This choice is intended to support stable autoregressive conditioning and is consistent with the Forest-Flow family design \cite{jolicoeur2023forest}.
+
+%==============================================================================
+\section{Tree-Based Approximation of the Vector Field}
+%==============================================================================
+
+Instead of neural networks, each time level is approximated with XGBoost regressors \cite{chen2016xgboost}.
+Let $\{t_k\}_{k=1}^{n_t}$ with $t_k = k/n_t$.
+For each $t_k$, the model fits regressors to approximate $\mathbf{v}_{t_k}$.
+
+For Forest-Flow, sampling integrates backward from noise:
+\begin{equation}
+\mathbf{x}_{k-1} = \mathbf{x}_{k} + h\hat{\mathbf{v}}_{t_k}(\mathbf{x}_{k}, \mathbf{c}), \quad h=1/n_t.
+\end{equation}
+A standard first-order choice is explicit Euler integration along the learned discrete time grid.
+
+%==============================================================================
+\section{Heterogeneous Sequential Feature Modeling (HS3F)}
+\label{sec:hs3f}
+%==============================================================================
+
+Flow fields are naturally continuous; categorical outputs are discrete.
+HS3F \cite{akazan2024hs3f} addresses this mismatch by splitting generation by feature type and generating features sequentially.
+
+\subsection{Feature-Wise Autoregressive Factorization}
+
+Given condition $\mathbf{c}_t=[\mathbf{s},\mathbf{x}_{t-1}]$, HS3F uses:
+\begin{equation}
+p(\mathbf{x}_t \mid \mathbf{c}_t)=\prod_{j=1}^{d_x}p(x_{t,j}\mid \mathbf{c}_t, x_{t,1:j-1}).
+\end{equation}
+
+\subsection{Continuous vs. Categorical Heads}
+
+For each feature $j$ in the fixed order (spanning continuous, binary, and multi-class categorical coordinates):
+\begin{itemize}\tightlist
+    \item If $j$ is routed to a quantitative head (continuous coordinates and, in the current implementation, binary coordinates): train flow-matching regressors over $t_k$.
+    \item If $j$ is categorical (\code{'c'} in feature typing, typically multi-class): train an XGBoost classifier and sample from $\hat{p}(x_{t,j}=\cdot\mid \mathbf{c}_t, x_{t,1:j-1})$.
+\end{itemize}
+
+Gradient-boosted multiclass learners require categorical outcomes as contiguous integer class indices.
+When training data are subsampled, the empirical support of categories may differ from the full corpus; consistent bookkeeping between the fitted model and the sampling map is needed in this pipeline to avoid index--label mismatches.
+
+\subsection{Numerical Integration Choice}
+
+For continuous HS3F dimensions, the conditional vector field is integrated numerically along flow time.
+Compared with first-order Euler integration, fourth-order Runge--Kutta (RK4) has smaller asymptotic local truncation error in the step size under standard smoothness assumptions; it is a common choice when vector-field curvature or stiffness is a concern.
+
+%==============================================================================
+\section{Computational Complexity}
+%==============================================================================
+
+Let $C_{\text{xgb}}$ denote average cost of one XGBoost fit call.
+
+\paragraph{Forest-Flow (all continuous targets):}
+\begin{equation}
+\mathcal{O}(n_t \cdot d_x \cdot n_{\text{noise}} \cdot C_{\text{xgb}})
+\end{equation}
+for training, with sampling complexity roughly:
+\begin{equation}
+\mathcal{O}(n_{\text{synth}} \cdot n_t \cdot d_x \cdot C_{\text{pred}}).
+\end{equation}
+
+\paragraph{HS3F (mixed targets):}
+If $d_q$ target dimensions are routed to quantitative heads (continuous plus binary under current typing) and $d_g$ are categorical classifier heads:
+\begin{equation}
+\mathcal{O}(n_t \cdot d_q \cdot n_{\text{noise}} \cdot C_{\text{xgb-reg}}
++ d_g \cdot C_{\text{xgb-clf}}).
+\end{equation}
+
+When categorical proportion is high, HS3F can avoid treating those coordinates as continuous flows and may increase throughput relative to an all-quantitative baseline \cite{akazan2024hs3f}.

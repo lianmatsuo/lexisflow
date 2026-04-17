@@ -1,0 +1,92 @@
+\chapter{Legal, Social, Ethical and Professional Issues}
+
+%==============================================================================
+\section{Legal and Regulatory Context}
+%==============================================================================
+
+This project generates synthetic ICU trajectories from deidentified MIMIC-III records \cite{johnson2016mimic}. Even though the source dataset is deidentified, it is still treated as controlled data in practice because of its granularity and potential disclosure sensitivity. MIMIC access requires credentialing, human-subjects training, and a signed data use agreement (DUA) \cite{mimicGettingStarted}. The governing PhysioNet credentialed-data license also prohibits re-identification attempts, sharing credentialed access, and non-research use \cite{physionetCredentialedLicense150}.
+
+\subsection{Data Governance Obligations}
+
+The legal baseline for this project is a combination of contractual governance (PhysioNet DUA/license) and academic research governance. In practical terms, this implies:
+\begin{itemize}\tightlist
+    \item no publication of row-level real patient records,
+    \item controlled handling of credentialed source data,
+    \item clear separation between releasable artifacts (code, synthetic outputs, aggregate metrics) and restricted artifacts (real patient tables).
+\end{itemize}
+
+This separation is reflected in the repository structure and ignore rules: large real/processed data paths are not committed by default, while code and reproducibility scripts are versioned.
+
+\subsection{UK Data-Protection Perspective}
+
+As this dissertation is produced in a UK academic setting, UK data-protection principles remain relevant to how risk is reasoned about, even when the project relies on a deidentified US-origin dataset. The Data Protection Act 2018 and UK GDPR research guidance emphasize safeguards, data minimisation, and restrictions on using research processing to make decisions about specific individuals \cite{dataProtectionAct2018,icoResearchSafeguards,icoDataMinimisation}.
+
+For this project, the key implication is methodological: synthetic data should not be treated as ``automatically anonymous'' by default. Instead, disclosure risk must be evaluated empirically before any release claim. This aligns legal caution with technical reality.
+
+\subsection{Release and Reuse Boundaries}
+
+The most defensible legal posture for current outputs is:
+\begin{enumerate}\tightlist
+    \item release code, methods, and aggregate evaluation summaries openly;
+    \item release synthetic tabular samples only with explicit caveats and risk metrics;
+    \item prohibit any framing of outputs as clinical decision support artifacts.
+\end{enumerate}
+
+If future work uses identifiable UK clinical data, then additional controls would be mandatory (for example: explicit lawful basis, DPIA where required, and institutional ethics/governance approval) \cite{icoResearchSafeguards}.
+
+%==============================================================================
+\section{Social and Ethical Issues}
+%==============================================================================
+
+\subsection{Privacy Risk Beyond Deidentification}
+
+Recent work shows that synthetic health data can still leak training-set information under realistic attacks. Membership inference has been demonstrated empirically against synthetic health datasets \cite{zhang2022membership}, and broader benchmarking literature reports persistent utility--privacy trade-offs rather than a universally ``safe'' generator \cite{yan2022benchmarking}. A recent scoping review further finds that many studies still under-evaluate privacy risk in practice \cite{kaabachi2025scoping}.
+
+In this project context, this means privacy claims should be conservative. Metrics such as DCR are useful diagnostics, but they should not be interpreted as sufficient legal anonymity proof on their own \cite{yao2025dcrdelusion}. This is why privacy testing is paired with adversarial-style membership checks in the implementation chapter.
+
+\subsection{Fairness, Representation, and Social Harm}
+
+Healthcare datasets encode historical and structural inequalities, and learning systems may reproduce or amplify them. A widely cited clinical risk-stratification case showed substantial racial disparity caused by an apparently reasonable prediction proxy \cite{obermeyer2019racialbias}. In synthetic-EHR generation itself, fairness is now an active research concern, with recent methods explicitly targeting bias reduction in downstream tasks \cite{ramachandranpillai2024btgan}.
+
+For this project, the social-risk implication is that ``overall realism'' (for example, good average KS or aggregate TSTR) is not enough. Subgroup behavior should be evaluated explicitly, because harm is often concentrated in minority cohorts rather than visible in global averages.
+
+\subsection{Potential Misuse and Overclaiming}
+
+Synthetic ICU records can accelerate method development, prototyping, and teaching. However, misuse risks remain:
+\begin{itemize}\tightlist
+    \item over-trusting synthetic distributions as direct clinical truth,
+    \item ignoring uncertainty and failure modes in vulnerable subgroups,
+    \item reusing generated outputs in settings they were not validated for.
+\end{itemize}
+
+Ethically, these risks are addressed by transparent reporting of limitations, explicit non-clinical-use framing, and conservative interpretation of empirical results.
+
+%==============================================================================
+\section{Professional Issues and BCS Alignment}
+%==============================================================================
+
+The BCS Code of Conduct \cite{bcsCodeConduct2022} requires duties to public interest, professional competence and integrity, relevant authority, and the profession. These four duties provide the organising framework for assessing this project's professional conduct. The 1972 BCS Code of Good Practice \cite{bcsCodeGoodPractice1972}, while predating modern computational healthcare, establishes foundational commitments to the public good and professional accountability that remain consistent with the current Code of Conduct; it is cited here as the historical precursor from which contemporary BCS standards descend, not as a primary normative source.
+
+\subsection{How BCS Principles Were Applied in This Project}
+
+\begin{itemize}\tightlist
+    \item \textbf{Public interest:} privacy and safety risks are treated as first-class evaluation concerns, not as optional discussion points.
+    \item \textbf{Competence and integrity:} conclusions are grounded in measured outcomes and literature, including reporting weak or negative results where present.
+    \item \textbf{Duty to relevant authority:} project workflows respect dataset licensing constraints and institutional expectations for responsible research.
+    \item \textbf{Duty to the profession:} scripts, model settings, and evaluation pathways are documented for auditability and reproducibility.
+\end{itemize}
+
+Professionally, this chapter's role is to demonstrate that technical performance alone is not sufficient for responsible computing in healthcare; governance, transparency, and accountability are part of engineering quality.
+
+%==============================================================================
+\section{Project Controls, Residual Risk, and Next Steps}
+%==============================================================================
+
+Current controls in this project include restricted-source-data handling, explicit privacy evaluation, and transparent reporting of model limitations. Nevertheless, residual risk remains in three areas:
+\begin{enumerate}\tightlist
+    \item \textbf{Residual disclosure risk:} stronger attack suites and release thresholds should continue to evolve.
+    \item \textbf{Subgroup fairness risk:} demographic slice-based evaluation should become a routine part of model acceptance.
+    \item \textbf{Context shift risk:} methods validated on MIMIC-derived distributions may not transfer safely to other hospitals or populations.
+\end{enumerate}
+
+Accordingly, a responsible forward plan is to keep privacy and fairness testing as release gates, publish limitations with results, and avoid clinical deployment claims until external validation and governance requirements are met.
