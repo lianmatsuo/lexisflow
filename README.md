@@ -1,4 +1,4 @@
-# Synth-Gen: Synthetic MIMIC-III Data Generation
+# lexisflow: Synthetic MIMIC-III Data Generation
 
 Generate synthetic ICU patient data using **Forest-Flow** — a state-of-the-art generative model that uses XGBoost instead of neural networks.
 
