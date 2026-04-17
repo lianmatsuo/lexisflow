@@ -1,0 +1,145 @@
+# Forest-Flow Configuration
+# Based on paper: https://arxiv.org/abs/2309.09968
+
+# Data Configuration
+data:
+  path: "data/processed/flat_table.csv"
+  max_rows: null  # null = use all rows (~2.2M). Streaming training prevents memory issues!
+
+  # Columns to exclude (IDs and temporal info)
+  exclude_cols:
+    - subject_id
+    - hadm_id
+    - icustay_id
+    - hours_in
+
+  # Static columns (patient-level features that don't change over time)
+  # Note: For IID model, these are treated like any other feature
+  # For autoregressive model, these become conditioning variables
+  #
+  # IMPORTANT: For data GENERATION, we include ALL static features (even outcome-related)
+  # to learn the full joint distribution. Filter out leaky columns later during EVALUATION.
+  static_cols:
+    # Demographics
+    - gender
+    - ethnicity
+    - age
+    - insurance
+    # Admission/Discharge info
+    - admittime
+    - dischtime
+    - diagnosis_at_admission
+    - discharge_location
+    - admission_type
+    - first_careunit
+    # ICU timing
+    - intime
+    - outtime
+    - los_icu
+    # Code status
+    - fullcode_first
+    - dnr_first
+    - fullcode
+    - dnr
+    - dnr_first_charttime
+    - timecmo_chart
+    - cmo_first
+    - cmo_last
+    - cmo
+    # Outcomes (included for generation, filtered during evaluation)
+    - deathtime
+    - mort_icu
+    - mort_hosp
+    - hospital_expire_flag
+    - hospstay_seq
+    - readmission_30
+
+  # Data quality filters
+  # NOTE: XGBoost handles missing data natively - this is a KEY FEATURE of Forest-Flow!
+  # Paper trains directly on incomplete data without filtering.
+  # Set to null to disable filtering (recommended per paper).
+  max_missing_ratio: null  # null = keep all rows (paper approach)
+  duplicate_threshold: null  # null = keep all columns (paper approach)
+
+# Model Configuration (Forest-Flow)
+model:
+  # Number of discrete time levels (paper uses 50)
+  # More = better quality but slower training
+  nt: 20  # Fast: 10, Normal: 20, Production: 50
+
+  # Number of noise samples per data point (paper uses 100)
+  # This is the MOST CRITICAL parameter for performance
+  # More = better expectation approximation but more memory
+  n_noise: 50  # Fast: 10, Normal: 50, Production: 100
+
+  # Streaming training (XGBoost 2.0+ QuantileDMatrix)
+  # IMPORTANT: Enables training on HUGE datasets without memory issues!
+  use_data_iterator: true  # Set false to use legacy batch training
+  batch_size: 1000  # Samples per batch when streaming (larger = faster, more memory)
+
+  # Parallelization
+  # WARNING: n_jobs=-1 can crash machines! Each worker copies arrays.
+  # Use 1 for minimal memory, 2-4 for balance. Only use -1 with 32GB+ RAM.
+  n_jobs: 1  # 4 workers is balanced for 32GB RAM
+
+  # Random seed
+  random_state: 42
+
+# XGBoost Parameters (from paper)
+# Paper uses no regularization (underfitting is the concern, not overfitting)
+xgboost:
+  n_estimators: 100
+  max_depth: 6
+  learning_rate: 0.1
+  subsample: 1.0
+  colsample_bytree: 1.0
+  reg_alpha: 0.0  # No L1 regularization
+  reg_lambda: 0.0  # No L2 regularization
+  tree_method: "hist"  # Fast histogram-based method
+
+# Generation Configuration
+generation:
+  n_samples: 1000000  # Number of synthetic samples to generate
+  clip_range: [-1, 1]  # Clip generated samples to this range for stability
+  random_state: 123
+
+# Train/Val/Test Split
+split:
+  train_size: 0.6
+  val_size: 0.2
+  test_size: 0.2
+  random_state: 42
+
+# Performance Tuning
+performance:
+  # Memory management
+  memory_threshold_percent: 90  # Wait if memory usage exceeds this
+  wait_time: 2.0  # Seconds to wait when memory is high
+
+  # Verbose output
+  verbose: 10  # Joblib verbosity (0=silent, 10=progress bars)
+
+# Notes:
+#
+# MEMORY USAGE:
+# Without streaming (use_data_iterator=false):
+#   - Memory usage ≈ n_samples * n_noise * n_features * 4 bytes
+#   - For 2.2M samples × 100 noise × 200 features = ~176 GB RAM ❌ (impossible!)
+#   - For 50k samples × 100 noise × 200 features = ~4 GB RAM ✓
+#
+# With streaming (use_data_iterator=true, RECOMMENDED):
+#   - Memory usage ≈ batch_size * n_noise * n_features * 4 bytes
+#   - For 2000 batch × 50 noise × 680 features = ~270 MB per batch ✓
+#
+# CRITICAL: n_jobs parallelism
+#   - n_jobs=-1 spawns N workers, each copies the full arrays!
+#   - With 680 features, ~100k rows: ~500MB base × N workers = crash risk
+#   - Use n_jobs=1 (sequential) for <16GB RAM
+#   - Use n_jobs=2-4 for 16-32GB RAM
+#   - Only use n_jobs=-1 with 32GB+ RAM
+#
+# RECOMMENDATIONS:
+# - Always use use_data_iterator=true for large datasets
+# - Keep n_jobs=1 unless you have plenty of RAM
+# - Use --sample-size to train on subset first
+# - Use --low-memory flag for safest settings

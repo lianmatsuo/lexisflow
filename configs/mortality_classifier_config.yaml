@@ -1,0 +1,25 @@
+# Mortality Classifier Configuration
+
+# Model parameters
+model:
+  max_iter: 1000          # Maximum iterations for solver
+  random_state: 42        # Random seed
+  class_weight: balanced  # Handle class imbalance
+  solver: lbfgs           # Optimization algorithm
+  C: 1.0                  # Inverse regularization strength
+  penalty: l2             # Regularization type
+
+# Training parameters
+training:
+  test_size: 0.3          # Proportion for test set
+  max_rows: null          # Max rows to load (null = all)
+
+# Data paths (examples)
+data:
+  real_data: "data/processed/flat_table_cleaned.csv"
+  synthetic_data: "results/autoregressive_trajectories.csv"
+
+# Output paths
+output:
+  real_model: "artifacts/mortality_classifier_real.pkl"
+  synthetic_model: "artifacts/mortality_classifier_synthetic.pkl"
