@@ -1,0 +1,4 @@
+metric,label,higher_is_better,hs3f_value,forest_flow_value,delta_ff_minus_hs3f,combined_ci95,significant,winner
+total_train_time_sec,Total Training Time (sec),False,2194.2,3224.2,1030.0,nan,nan,hs3f
+synth_accuracy,Mortality Accuracy (TSTR),True,0.1121,0.6372,0.5251,0.452786,True,forest-flow
+synth_roc_auc,Mortality AUROC (TSTR),True,0.672,0.6189,-0.0531,0.079787,False,unclear
