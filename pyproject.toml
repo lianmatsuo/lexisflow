@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools:build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["packages*"]
+where = ["src"]
+include = ["synth_gen*"]
 
 [project]
 name = "synth-gen"
@@ -43,6 +43,6 @@ dev = [
     "pytest>=9.0.2",
 ]
 
-# Thread caps must run before NumPy/torch (see packages/models/ctgan_adapter.py).
+# Thread caps must run before NumPy/torch (see src/synth_gen/models/ctgan_adapter.py).
 [tool.ruff.lint.per-file-ignores]
-"packages/models/ctgan_adapter.py" = ["E402"]
+"src/synth_gen/models/ctgan_adapter.py" = ["E402"]

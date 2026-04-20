@@ -7,8 +7,8 @@
 \subsection{Source and Canonical Input}
 
 The operational pipeline starts from hourly ICU tables derived from MIMIC-III \cite{johnson2016mimic}
-through a MIMIC-Extract style workflow \cite{wang2020mimicextract}. The canonical training input for autoregressive modeling is \code{packages/data/processed/autoregressive\_data.csv}.
-Hour-0 training uses \code{packages/data/processed/hour0\_data.csv}.
+through a MIMIC-Extract style workflow \cite{wang2020mimicextract}. The canonical training input for autoregressive modeling is \code{src/synth_gen/data/processed/autoregressive\_data.csv}.
+Hour-0 training uses \code{src/synth_gen/data/processed/hour0\_data.csv}.
 
 \subsection{Autoregressive Transformation}
 
@@ -20,7 +20,7 @@ With lag-1 engineering, each row at time $t$ uses:
 \end{align}
 
 \paragraph{Lag-0 and missing lag cells (implemented).}
-The autoregressive table is built in \code{packages/data/autoregressive.py} by sorting on \code{(subject\_id, hours\_in)} and, for each dynamic column, computing \code{groupby(subject\_id)[col].shift(lag)} with \code{lag=1}.
+The autoregressive table is built in \code{src/synth_gen/data/autoregressive.py} by sorting on \code{(subject\_id, hours\_in)} and, for each dynamic column, computing \code{groupby(subject\_id)[col].shift(lag)} with \code{lag=1}.
 \textbf{Lag-0 (no in-group history).} The first row of each \code{subject\_id} has no prior row in that group, so for each dynamic column \code{col} the lag feature \code{col\_lag1} is \code{NaN} before filling.
 \textbf{Fill strategy and value.} When \code{fill\_strategy="special"}, the implementation assigns \code{df\_lagged.fillna(fill\_value)} to the entire lagged-column block.
 The entry point \code{scripts/01\_preprocess\_data.py} calls \code{prepare\_autoregressive\_data} with \code{fill\_strategy="special"} and \code{fill\_value=-1.0} (matching the function defaults for those parameters), so every lag-column \code{NaN} becomes the float sentinel \code{-1.0}.
@@ -52,7 +52,7 @@ This design persists both semantic columns and transformed indices because trans
 
 \subsection{Feature-Type Identification}
 
-Feature typing is centralized in \code{packages/data/feature\_utils.py} and consumed by \code{scripts/01b\_fit\_preprocessor.py}.
+Feature typing is centralized in \code{src/synth_gen/data/feature\_utils.py} and consumed by \code{scripts/fit\_autoregressive\_preprocessor.py}.
 Columns are grouped into:
 \begin{itemize}\tightlist
     \item numeric continuous,
@@ -74,7 +74,7 @@ This design differs from older one-hot/min-max variants and aligns with the tree
 
 \subsection{Streaming Fit for Full-Dataset Coverage}
 
-\code{scripts/01b\_fit\_preprocessor.py} performs chunked fitting on the full autoregressive CSV via repeated \code{partial\_fit()} calls followed by \code{finalize\_fit()}, then persists the artifact at \code{models/preprocessor\_full.pkl}.
+\code{scripts/fit\_autoregressive\_preprocessor.py} performs chunked fitting on the full autoregressive CSV via repeated \code{partial\_fit()} calls followed by \code{finalize\_fit()}, then persists the artifact at \code{models/preprocessor\_full.pkl}.
 
 The design goal is to capture rare categorical values and robust numeric ranges before any subsampled training.
 
@@ -341,7 +341,7 @@ All major training entry points accept the flag \code{--model-type} with values 
 
 \subsection{ForestFlow Backbone}
 
-The \code{ForestFlow} class in \code{packages/models/forest\_flow.py} implements conditional flow matching with XGBoost regressors.
+The \code{ForestFlow} class in \code{src/synth_gen/models/forest\_flow.py} implements conditional flow matching with XGBoost regressors.
 Core interface:
 \begin{itemize}\tightlist
     \item \code{fit(X\_target, X\_condition, feature\_types)},
@@ -360,7 +360,7 @@ Categorical typing logic is constrained by flow arithmetic: target dimensions th
 
 \subsection{HS3F Backbone}
 
-The \code{HS3F} class in \code{packages/models/hs3f.py} follows heterogeneous sequential generation \cite{akazan2024hs3f}:
+The \code{HS3F} class in \code{src/synth_gen/models/hs3f.py} follows heterogeneous sequential generation \cite{akazan2024hs3f}:
 \begin{itemize}\tightlist
     \item continuous targets: flow-matching regressors,
     \item categorical targets: XGBoost classifiers with multinomial sampling,

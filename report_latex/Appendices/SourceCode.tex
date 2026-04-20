@@ -22,14 +22,14 @@ The complete source code is submitted alongside this report. The table below pro
 \toprule
 \textbf{File} & \textbf{Description} \\
 \midrule
-\multicolumn{2}{l}{\textbf{Data Processing (\code{packages/data/})}} \\
+\multicolumn{2}{l}{\textbf{Data Processing (\code{src/synth_gen/data/})}} \\
 \midrule
 \code{transformers.py} & Tabular preprocessor: label encoding for categoricals, binary rounding, streaming \code{partial\_fit()}, and inverse transform for human-readable export. \\
 \code{autoregressive.py} & Autoregressive data preparation: lag-1 feature creation, static/dynamic column separation, biophysical aggregation. \\
 \code{feature\_utils.py} & Centralised feature-type detection: identifies numeric, binary, and categorical columns using clinical domain knowledge. \\
 \code{loaders.py} & Data loading utilities for MIMIC-III derived CSV files. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Generative Models (\code{packages/models/})}} \\
+\multicolumn{2}{l}{\textbf{Generative Models (\code{src/synth_gen/models/})}} \\
 \midrule
 \code{forest\_flow.py} & ForestFlow backbone: conditional flow matching with XGBoost regressors at discrete time levels, Euler sampling, clean-condition principle. \\
 \code{hs3f.py} & HS3F backbone: heterogeneous sequential feature generation with flow-matching regressors for continuous and XGBoost classifiers for categorical targets. \\
@@ -37,7 +37,7 @@ The complete source code is submitted alongside this report. The table below pro
 \code{sampling.py} & Autoregressive trajectory sampling: generates multi-hour patient trajectories by iteratively conditioning on previously generated states. \\
 \code{utils.py} & Shared model helper functions. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Evaluation (\code{packages/evaluation/})}} \\
+\multicolumn{2}{l}{\textbf{Evaluation (\code{src/synth_gen/evaluation/})}} \\
 \midrule
 \code{quality\_metrics.py} & Distributional quality: KS statistics, correlation Frobenius norm, clinical range violation rates. \\
 \code{privacy\_metrics.py} & Privacy diagnostics: DCR summaries, baseline/overfitting protection scores, DOMIAS-style membership inference attack. \\
@@ -45,7 +45,7 @@ The complete source code is submitted alongside this report. The table below pro
 \code{tstr.py} & Single-task TSTR evaluation (mortality prediction). \\
 \code{visualizations.py} & Metric visualisation utilities. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Clinical Prediction (\code{packages/mortality/})}} \\
+\multicolumn{2}{l}{\textbf{Clinical Prediction (\code{src/synth_gen/mortality/})}} \\
 \midrule
 \code{model.py} & Mortality classifier: logistic regression baseline for TSTR evaluation. \\
 \code{preprocessor.py} & TSTR preprocessor: variable-length sequence padding for patient-level classification. \\
@@ -64,7 +64,7 @@ The complete source code is submitted alongside this report. The table below pro
 \code{run\_sweep.py} & Unified hyperparameter sweep with caching and resumability. \\
 \code{plot\_sweep\_results.py} & Visualise sweep results. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Unit Tests (\code{packages/*/tests/})}} \\
+\multicolumn{2}{l}{\textbf{Unit Tests (\code{src/synth_gen/*/tests/})}} \\
 \midrule
 \code{test\_autoregressive.py} & Tests for autoregressive transformation and lag feature creation. \\
 \code{test\_feature\_utils.py} & Tests for feature-type detection utilities. \\

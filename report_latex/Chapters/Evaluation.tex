@@ -4,7 +4,7 @@
 \section{Software Testing}
 %==============================================================================
 
-The evaluation subsystem is verified with deterministic unit tests before computationally expensive sweeps are executed. The tests, implemented with \code{pytest} in \code{packages/evaluation/tests/}, target metric correctness, edge-case handling, and report-schema stability \cite{pytestProject}.
+The evaluation subsystem is verified with deterministic unit tests before computationally expensive sweeps are executed. The tests, implemented with \code{pytest} in \code{src/synth\_gen/evaluation/tests/}, target metric correctness, edge-case handling, and report-schema stability \cite{pytestProject}.
 
 \subsection{Quality-Metric Tests}
 
@@ -95,7 +95,7 @@ In response to these pitfalls, the TSTR framework was revised to operate at \emp
 \text{evaluate } g_{\phi_{\text{synth}}} \text{ on } (\mathcal{S}_{\text{real,test}}, y_{\text{real,test}}).
 \end{equation}
 
-Patient-level splitting is performed by \code{subject\_id}: all timesteps from one patient remain in the same split, eliminating the leakage problem. The real patient cohort is split 70\,\% training / 30\,\% test (implemented as \code{test\_size=0.3} in \code{tstr\_framework.py}), with stratification on the task label where class support permits. Sequences are sorted by \code{hours\_in}, padded to a common length with a binary mask, flattened, and fed to a logistic-regression model (implemented as \code{\_PaddedSequenceClassifier} in \code{tstr\_framework.py}). This preserves temporal order and full-stay context per patient without requiring a recurrent or attention-based architecture; the mask encodes which timesteps are genuine observations versus padding.
+Patient-level splitting is performed by \code{subject\_id} at two levels. First, the raw MIMIC-III cohort is partitioned once at preprocessing time (\code{scripts/01\_preprocess\_data.py}) into a training cohort (\code{autoregressive\_data.csv}, 80\,\% of patients), a TSTR / fidelity reference cohort (\code{real\_test.csv}, 10\,\% of patients), and a privacy-evaluation holdout cohort (\code{real\_holdout.csv}, 10\,\% of patients); the generator is only ever exposed to the first file, so the real cohorts used for evaluation share no patients with the cohort the generator learned from. Second, within \code{real\_test.csv}, the real patient cohort is split 70\,\% / 30\,\% for the real-trained baseline classifier (implemented as \code{test\_size=0.3} in \code{tstr\_framework.py}), with stratification on the task label where class support permits. All timesteps from one patient remain in the same split at both levels, eliminating within-patient leakage. Sequences are sorted by \code{hours\_in}, padded to a common length with a binary mask, flattened, and fed to a logistic-regression model (implemented as \code{\_PaddedSequenceClassifier} in \code{tstr\_framework.py}). This preserves temporal order and full-stay context per patient without requiring a recurrent or attention-based architecture; the mask encodes which timesteps are genuine observations versus padding.
 
 The vasopressor-use task was removed from the revised framework. At patient level, a binary ``ever received vasopressors'' label is more naturally defined, but vasopressor administration is a well-established marker of haemodynamic instability and septic shock severity that correlates strongly with both in-hospital mortality and prolonged ICU stay \cite{yan2022benchmarking}. As a consequence, a classifier trained to predict vasopressor use tends to recapitulate the same predictive signal as mortality and LOS classifiers, reducing its value as an independent utility dimension. The final framework evaluates two tasks implemented in \code{tstr\_framework.py}:
 
@@ -133,6 +133,8 @@ Privacy assessment in \code{privacy\_metrics.py} combines proximity diagnostics 
     \item DOMIAS-inspired membership inference metrics (ROC-AUC, average precision, attacker advantage).
 \end{itemize}
 
+The overfitting-protection and membership-inference metrics require a real reference cohort that the generator has never observed; both consume \code{real\_holdout.csv}, the 10\,\% patient-disjoint holdout carved at preprocessing time, passed into \code{compute\_privacy\_metrics(..., holdout\_df=...)} by the sweep driver. This disjointness is what makes the train-vs-holdout comparison in Score$_{\text{overfit}}$ and the attacker reference distance $d_{\text{ref}}$ in DOMIAS informative: a memorising generator cannot hide by being equally close to training and evaluation patients, because the two cohorts share no subjects.
+
 The DCR-based protection scores follow SDMetrics-style formulations \cite{sdmetricsPrivacyDocs}. Membership inference follows the attack perspective introduced in classical MIA literature and modern synthetic-data attacks \cite{shokri2017membership,breugel2023domias}. Average precision is reported alongside ROC-AUC for ranking quality under class-imbalance sensitivity \cite{davisGoadrich2006}. Recent work also motivates caution: distance-only metrics should not be interpreted as standalone privacy guarantees \cite{yao2025dcrdelusion}.
 
 \subsection{Trajectory-Level Quality Metrics}
@@ -149,7 +151,7 @@ The per-row metrics above assess marginal fidelity but cannot detect temporal in
     \item \textbf{Temporal cross-feature correlation drift} (\code{temporal\_corr\_drift}): For clinically meaningful feature pairs (heart rate vs.\ MAP, systolic vs.\ diastolic BP, SpO\textsubscript{2} vs.\ respiratory rate), the within-trajectory Pearson correlation is computed per patient, and the metric reports the mean absolute difference in median correlation between real and synthetic data. This captures whether the generator preserves physiological relationships \emph{within} individual trajectories, not just in aggregate.
 \end{enumerate}
 
-These metrics are computed before per-row quality metrics in the sweep loop, using the raw DataFrames that retain \code{subject\_id} and \code{hours\_in} for grouping. Trajectories shorter than four timesteps are excluded to ensure stable autocorrelation estimates. Seed-level uncertainty (mean, standard deviation, CI95) is defined in the \code{SWEEP\_RESULT\_COLUMNS} schema and is populated whenever the trajectory-sampling seed list \code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} in \code{run\_sweep.py} has length greater than one. In the results reported here, the three-seed protocol is exercised at the matched backbone-comparison cell; the main-grid canonical CSV is currently single-seed, and its point estimates should be treated as trend-level rather than statistically bounded.
+These metrics are computed before per-row quality metrics in the sweep loop, using the raw DataFrames that retain \code{subject\_id} and \code{hours\_in} for grouping. Trajectories shorter than four timesteps are excluded to ensure stable autocorrelation estimates. Seed-level uncertainty (mean, standard deviation, CI95) is defined in the \code{SWEEP\_RESULT\_COLUMNS} schema and is populated whenever the trajectory-sampling seed list \code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} in \code{run\_sweep.py} has length greater than one. Each entry in that list drives both the trajectory-sampling RNG and the evaluator \code{random\_state} (real/synthetic train-test split, real-baseline classifier, and privacy-attack subsampling), so the reported \code{\_std} and \code{\_ci95} columns reflect compounded trajectory and evaluator variance rather than trajectory variance alone. In the results reported here, the three-seed protocol is exercised at the matched backbone-comparison cell; the main-grid canonical CSV is currently single-seed, and its point estimates should be treated as trend-level rather than statistically bounded.
 
 \subsection{Model-Screening Guardrail}
 
@@ -157,4 +159,189 @@ To reduce accidental over-interpretation of clearly weak runs, the sweep records
 
 \subsection{Reporting Scope}
 
-This chapter defines the \emph{evaluation protocol}. Numerical outcomes across the full hyperparameter sweep grid are presented in the Implementation chapter (\S~\textbf{Empirical Outcomes from the Hyperparameter Sweep}), with figures covering TSTR utility, distributional quality, computational cost, and extrapolation analysis.
+This chapter defines the \emph{evaluation protocol}. Numerical outcomes across the full hyperparameter sweep grid are presented in the Implementation chapter (\S~\textbf{Empirical Outcomes from the Hyperparameter Sweep}). The remainder of this chapter provides a figure-by-figure interpretation of the sweep plots in \code{results/sweep\_plots/}, grounded in the aggregated values in \code{results/sweep\_results.csv}, followed by an extrapolation to the production configuration $(n_t, n_{\text{noise}})=(50, 100)$.
+
+%==============================================================================
+\section{Empirical Analysis of the Hyperparameter Sweep}
+%==============================================================================
+
+\subsection{Scope and Caveats}
+
+The analysis below covers the Fibonacci-scale grid $n_t, n_{\text{noise}} \in \{1, 2, 3, 5, 8, 13, 21, 34\}$. At the time of writing, 52 of 64 cells are complete; the $n_t{=}21$ row is populated up to $n_{\text{noise}}{=}8$, and the $n_t{=}34$ row is not yet populated. Every figure is therefore analysed within that populated envelope, and statements about the top-right quadrant of each heatmap are marked accordingly. Each reported cell aggregates three trajectory-sampling seeds; reported standard deviations therefore reflect only within-cell trajectory and evaluator variance, not across-cell stochastic training variance (the generator itself is trained once per cell).
+
+A structural caveat applies throughout: the real-model TSTR baselines (mortality ROC-AUC $\approx 0.82$, LOS macro-F1 $\approx 0.77$) are computed on a patient-disjoint subset of \code{real\_test.csv} using the same logistic-regression sequence classifier as the synthetic-trained arm. They are therefore a tight upper bound for what a linear classifier can extract from this cohort, not an absolute ceiling---a non-linear classifier would raise the baseline further, which would in turn widen every gap reported below.
+
+\subsection{Mortality TSTR: ROC-AUC, Accuracy, Balanced Accuracy, and F1}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_heatmap.png}
+\caption{Mortality TSTR ROC-AUC across the sweep grid (left) and the gap against the real-trained baseline (right). White cells are not yet populated.}
+\label{fig:sweep_mort_roc}
+\end{figure}
+
+ROC-AUC is the most scientifically informative mortality metric in this regime because (i) the cohort is class-imbalanced and (ii) the synthetic-trained classifier frequently collapses to near-constant predictions, which inflates or deflates threshold-dependent metrics. Figure~\ref{fig:sweep_mort_roc} shows a clean monotone signal in $n_t$: ROC-AUC rises from $0.47$--$0.52$ at $n_t{=}1$ to $0.63$--$0.66$ at $n_t{\geq}8$, then plateaus. Across the $n_{\text{noise}}$ axis the same row is essentially flat (marginal means differ by $< 0.02$ between $n_{\text{noise}}{=}1$ and $n_{\text{noise}}{=}34$). The gap-to-real panel mirrors this: $-0.35$ at the sparsest cell, narrowing to $-0.17$ at the best cell, but never closing.
+
+The interpretation is that $n_t$ controls the fidelity of the flow-matching integration path: with too few integration steps the target distribution is under-fit and predictors trained on the resulting samples carry almost no class signal. $n_{\text{noise}}$ controls the number of noise anchors per training row, which in principle should regularise the score-matching objective, but in this pipeline the downstream TSTR task is dominated by bias, not variance: adding noise anchors cannot rescue a mis-integrated velocity field. This is an architectural rather than a hyperparameter finding, and it implies that spending compute on larger $n_{\text{noise}}$ is poor value unless $n_t$ is already in the saturated region.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_f1_heatmap.png}
+\caption{Mortality TSTR F1 (left) and gap against the real-trained baseline (right).}
+\label{fig:sweep_mort_f1}
+\end{figure}
+
+F1 on the mortality task (Figure~\ref{fig:sweep_mort_f1}) tells a more pessimistic story: values sit in $0.1$--$0.22$ against a real-model baseline of $\approx 0.47$, and the gap barely closes with $n_t$. This is consistent with a synthetic generator that preserves \emph{rank ordering} (which ROC-AUC measures) but systematically mis-calibrates the decision threshold. In other words, the synthetic mortality signal is directionally correct but the positive class is under-represented in the synthetic joint distribution, so the classifier's optimal operating point is pushed into a low-precision regime. The accuracy and balanced-accuracy heatmaps (not reproduced in full; \code{sweep\_accuracy\_heatmap.png} and \code{sweep\_balanced\_accuracy\_heatmap.png}) corroborate this: raw accuracy swings between $0.10$ and $0.85$ depending on which class the classifier defaults to, while balanced accuracy stays in $0.49$--$0.60$---just above chance. The only metric from this family worth reading for model selection is ROC-AUC; the others are structurally unstable under class-collapse behaviour.
+
+\subsection{LOS TSTR: ROC-AUC, Macro-F1, Accuracy}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_los_macro_f1_heatmap.png}
+\caption{LOS TSTR macro-F1 (left) and gap against the real-trained baseline (right).}
+\label{fig:sweep_los_f1}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_los_roc_heatmap.png}
+\caption{LOS TSTR one-vs-rest ROC-AUC (left) and gap against the real-trained baseline (right).}
+\label{fig:sweep_los_roc}
+\end{figure}
+
+Length-of-stay is a multi-class problem and is substantially harder than mortality. Macro-F1 (Figure~\ref{fig:sweep_los_f1}) stays in $0.17$--$0.38$ across the entire populated grid against a real-model baseline of $\approx 0.77$---a gap of $-0.4$ to $-0.6$ that is materially larger than the mortality gap in absolute terms. Unlike mortality ROC-AUC there is no clean monotone trend in $n_t$: the best cells ($n_{\text{noise}}{=}2$, $n_t{=}13$--$21$: macro-F1 $\approx 0.35$--$0.38$) are not adjacent to each other and are within CI95 of much weaker cells, suggesting that these peaks are seed-level fluctuations rather than genuine optima. The LOS ROC-AUC heatmap (Figure~\ref{fig:sweep_los_roc}) is smoother and shows a weaker version of the mortality-AUC trend---ranging $0.12$--$0.70$ with higher values loosely clustered at moderate $n_t$---but still far from the real baseline.
+
+Three mechanisms plausibly drive this. First, LOS categorisation depends on trajectory \emph{length} and \emph{terminal-phase dynamics}; the fixed 48-hour generation window truncates or pads every real stay to the same length and therefore destroys the primary signal the real-model classifier exploits (the stay-length-KS metric in \S\ref{sec:sweep_quality} confirms this directly). Second, LOS categories are imbalanced and macro-F1 penalises per-class collapse, so any synthetic data that under-represents short or long stays is punished more heavily than in the binary mortality task. Third, the trajectory-level classifier flattens padded sequences into a fixed-length feature vector---this is adequate when the dynamic signal is strong, but LOS depends on subtle late-sequence patterns that a linear model only partially recovers from flat features.
+
+Practically, this means the pipeline as constituted is not a viable LOS-prediction data source at any setting on this grid. The architectural fix is not more $n_t$---it is variable-length generation or an LOS-aware post-processing step, neither of which is in scope for this thesis.
+
+\subsection{Statistical Quality: KS, Correlation, Clinical Range Violations}
+\label{sec:sweep_quality}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_quality_metrics.png}
+\caption{Per-feature statistical quality metrics across the sweep. Left: average two-sample KS statistic. Middle: Frobenius norm of the difference between real and synthetic correlation matrices. Right: percentage of synthetic rows violating the clinical range table. Lower is better throughout.}
+\label{fig:sweep_quality}
+\end{figure}
+
+Figure~\ref{fig:sweep_quality} is the most structurally revealing figure of the sweep and warrants close reading. The KS panel is almost flat: values sit at $0.61$--$0.64$ across the entire grid, moving by at most $0.03$ between best and worst cells. A KS of $\approx 0.62$ means that for the median numeric feature, the maximum gap between real and synthetic CDFs is $62$ percentage points; for reference, two samples drawn from the same distribution would give $\approx 0.02$ at this sample size. The generator is therefore not close to marginal-distribution parity on most continuous features, and increasing $n_t$ or $n_{\text{noise}}$ does not help.
+
+The correlation-preservation panel \emph{does} improve with $n_t$, dropping from a Frobenius norm of $\approx 18.4$ at $n_t{=}1$ to $\approx 14.4$ at $n_t{=}21$. This is consistent with the hypothesis that short integration paths collapse the joint onto its marginals, destroying cross-feature structure, and that additional $n_t$ steps recover pairwise relationships even when marginal fit stays weak. Again $n_{\text{noise}}$ is nearly irrelevant.
+
+The clinical-range-violation panel is the hardest finding in this figure: violation rates sit at $59\%$--$72\%$ across every cell. More than half of synthetic rows have at least one vital sign outside the physiologic window encoded in the clinical-range table. This is not a TSTR-level problem that better classifiers can work around; it is a deployment-blocker. Two likely mechanisms: (i) the preprocessing pipeline normalises by cohort mean/std but does not clip to clinical bounds, so the flow-matching model is free to sample in the tails; (ii) the loss function has no range-awareness. The violation rate \emph{does} decrease with $n_t$ (from $\approx 72\%$ to $\approx 59\%$), so more integration steps soften the issue, but no populated cell reaches a deployable threshold.
+
+\subsection{Trajectory-Level Structure and Temporal Coherence}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_trajectory_structure_metrics.png}
+\caption{Trajectory-structure metrics. Left: stay-length KS statistic. Right: transition-smoothness ratio (synthetic / real mean hourly absolute change).}
+\label{fig:sweep_traj_struct}
+\end{figure}
+
+The stay-length-KS panel in Figure~\ref{fig:sweep_traj_struct} is pinned at $0.98$ for every cell. This is not a bug---it is a direct consequence of the fixed 48-hour generation window documented in the Implementation chapter. Every synthetic trajectory has length~$48$; the real cohort has a continuous distribution of lengths from a few hours to several hundred. A two-sample KS on these two distributions is essentially guaranteed to be near~$1$. The figure therefore serves as a reminder that this is an architectural limitation, not a training-time one: no $(n_t, n_{\text{noise}})$ setting can ever improve this metric, and the LOS TSTR gap discussed above is partly a downstream consequence of this.
+
+The transition-smoothness ratio panel shows the opposite: strong dependence on $n_t$ and essentially none on $n_{\text{noise}}$. At $n_t{=}1$, ratios are $\approx 1.1$--$1.5$ (slightly rougher than real); by $n_t{=}13$--$21$ ratios reach $6$--$8$, meaning synthetic trajectories oscillate six-to-eight times more than real ones. This is counter-intuitive at first---one would expect more integration steps to produce \emph{smoother} synthetic paths. The likely explanation is that at $n_t{=}1$ the autoregressive model is essentially regressing to a conditional mean (producing artificially flat trajectories), whereas with sufficient $n_t$ the generator samples with real variance but without the temporal-smoothness prior that a real physiological trajectory has. In other words, $n_t{=}1$ is smooth because it is degenerate; higher $n_t$ is rough because the generator has no mechanism to couple successive hours. A smoothness-preserving regulariser or a larger conditioning window would address this; the current hyperparameter axes cannot.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_temporal_correlation_metrics.png}
+\caption{Temporal-correlation metrics. Left: lag-1 autocorrelation distance (feature-median gap between real and synthetic). Right: cross-feature temporal correlation drift for clinically meaningful pairs.}
+\label{fig:sweep_temporal_corr}
+\end{figure}
+
+Figure~\ref{fig:sweep_temporal_corr} complements the transition panel. Autocorrelation distance is lowest ($0.10$--$0.12$) in the $n_t{=}3$--$5$ band and rises at both extremes: at $n_t{=}1$ the autoregressive model produces over-smooth trajectories with high lag-1 correlation, and at $n_t{\geq}8$ the high-variance noise injection discussed above destroys short-range dependency. The cross-feature correlation drift panel shows a similar U-shape with best values around $n_t{=}3$--$5$. This is a direct empirical signal that the production configuration $(50, 100)$ will \emph{not} sit in the sweet spot for temporal coherence: both metrics should be expected to degrade beyond $n_t{=}21$ unless a smoothness term is added.
+
+\subsection{Privacy Metrics: DCR, Baseline Protection, Membership Inference}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_privacy_metrics.png}
+\caption{Privacy diagnostics. Top row: DCR median and DCR baseline protection. Bottom row: DOMIAS-style membership inference ROC-AUC and attacker advantage.}
+\label{fig:sweep_privacy}
+\end{figure}
+
+Four observations from Figure~\ref{fig:sweep_privacy}. First, the DCR median panel shows a systematic \emph{decrease} with $n_t$, from $\approx 20.4$ at $n_t{=}1$ to $\approx 19.6$ at $n_t{=}21$. The direction is expected---better-trained generators sample closer to the training manifold---but the magnitude is small: under one DCR unit over the entire grid. The exact-match-rate column in the raw CSV is $0.0$ for every cell, which confirms there is no verbatim memorisation even at the most-trained settings.
+
+Second, the DCR baseline-protection panel is saturated at $1.0$ across the entire grid. This is the maximum score possible under the SDMetrics formulation and means synthetic rows are, on average, no closer to training rows than a uniformly sampled baseline would be. This is a strong positive privacy signal but it should be interpreted with the DCR caveat noted in the protocol section \cite{yao2025dcrdelusion}: distance-based metrics can be gamed by low-fidelity generators, and the marginal-fit results above suggest this particular signal may partly reflect the generator's overall distributional drift rather than a principled privacy guarantee.
+
+Third, the DOMIAS-style membership-inference ROC-AUC sits at $0.594$--$0.598$ across the grid, with a slow monotone creep upward as $n_t$ grows. A value in this band corresponds to an attacker with a small but non-trivial advantage over random guessing; more precisely, if a row is presented to the attacker, they are correct about training membership $\approx 60\%$ of the time. The attacker-advantage panel is $0.0$ everywhere because the attacker advantage is reported as $\max(0, 2\cdot\text{AUC}-1)$ thresholded against the discrete seed-level sampling variance, and at this scale the thresholded estimate is zero even when the raw AUC is $0.6$. This discrepancy is worth flagging in future reporting: advantage and AUC are not reading the same story here, and the AUC number is the more honest single summary.
+
+Fourth, privacy metrics are the \emph{only} family in the sweep where the trend with $n_t$ is monotonically \emph{unfavourable}: utility improves (or saturates) with $n_t$, quality improves with $n_t$, but DCR shrinks and membership-inference AUC grows. This is the classical utility--privacy trade-off materialised in one figure. At production scale $(n_t, n_{\text{noise}}){=}(50, 100)$, both effects should extend in the same direction.
+
+\subsection{Training Cost and Scaling}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_training_time.png}
+\caption{Total training time (hour-0 module + autoregressive module, in minutes) as a function of $n_t$ and $n_{\text{noise}}$.}
+\label{fig:sweep_time}
+\end{figure}
+
+Figure~\ref{fig:sweep_time} shows cost scaling. The right panel is nearly a pencil of straight lines through the origin: for each fixed $n_t$, training time is approximately linear in $n_{\text{noise}}$, as expected because the noise-anchor loop is the inner-most loop in the training step. The left panel is super-linear in $n_t$ for large $n_{\text{noise}}$ but approximately linear for small $n_{\text{noise}}$. A bilinear least-squares fit $T \approx 27.97\,n_t n_{\text{noise}} - 19.73\,n_t + 29.26\,n_{\text{noise}} + 109.1$ (seconds) explains $R^2{=}0.947$ of the variance. The dominant term $n_t n_{\text{noise}}$ captures the correct leading-order scaling but slightly underestimates at large $n_t$, where the autoregressive module exhibits additional memory-bound overhead visible as the $n_{\text{noise}}{=}34$ curve departing above the others at $n_t{=}13$. The split view \code{sweep\_training\_time\_split.png} confirms that this departure comes from the autoregressive module, not from hour-0.
+
+Two consequences. First, the most expensive completed cell is $n_t{=}13, n_{\text{noise}}{=}34$ at $\approx 4.1$ hours; the $n_t{=}21, n_{\text{noise}}{=}34$ cell did not complete in the allotted window, which is itself a data point about scaling. Second, the \emph{marginal} cost of doubling $n_t$ at high $n_{\text{noise}}$ is not rewarded by proportional utility gains: going from $n_t{=}8$ to $n_t{=}21$ triples compute but moves ROC-AUC from $\approx 0.617$ to $\approx 0.631$, a change well inside seed-level CI95.
+
+\subsection{Uncertainty Structure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{sweep_uncertainty_heatmaps.png}
+\caption{CI95 half-widths across the sweep for each reported metric. Darker cells indicate wider confidence intervals.}
+\label{fig:sweep_uncert}
+\end{figure}
+
+Figure~\ref{fig:sweep_uncert} reports the CI95 half-widths across the grid. Three patterns are worth noting. The mortality ROC-AUC CI95 is large ($\pm 0.06$ to $\pm 0.22$) and is widest at small $n_t$, narrowing as the classifier moves away from chance; this means the left column of the utility heatmaps should not be read point-by-point. LOS macro-F1 CI95 is similarly wide ($\pm 0.14$ to $\pm 0.47$ in some cells), reinforcing the earlier point that LOS peaks are seed noise rather than genuine optima. In contrast, the quality-metric CI95s (KS, correlation, range violations) are extremely tight ($\pm 0.0003$ to $\pm 0.06$), because these metrics aggregate over many feature-pairs and many rows and so average out the trajectory-sampling variance. This validates treating the quality panel trends as real rather than sampling artefacts.
+
+The three-seed protocol is therefore informative for quality and trajectory metrics but too few-shot to tightly pin the TSTR utility point estimates. A higher seed count at the production cell would materially improve the signal-to-noise ratio of the extrapolation below.
+
+\subsection{Extrapolation to the Production Configuration $(n_t{=}50, n_{\text{noise}}{=}100)$}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.85\textwidth]{sweep_extrapolation.png}
+\caption{Extrapolation of the pipeline-provided utility curve to $n_t{=}50$ (left) and $n_{\text{noise}}{=}30$ (right). The pipeline uses a saturating functional form.}
+\label{fig:sweep_extrap}
+\end{figure}
+
+Figure~\ref{fig:sweep_extrap} is the extrapolation plot produced by the sweep-plotting utility. Because the prediction depends sensitively on the assumed functional form, I refit three plausible saturating models to the $n_t$-marginalised ROC-AUC series and report all three:
+
+\begin{itemize}
+    \item Exponential saturation $y = a - b\,e^{-c\,n_t}$: asymptote $a=0.631$, so $\hat{y}(n_t{=}50) = \hat{y}(n_t{\to}\infty) = 0.631$.
+    \item Power decay $y = a - b\,n_t^{-c}$: $\hat{y}(n_t{=}50) = 0.667$.
+    \item Logarithmic $y = a + b\log n_t$: $\hat{y}(n_t{=}50) = 0.680$, $\hat{y}(n_t{=}100) = 0.710$. This is the pipeline's default fit and the source of the $0.680$ annotation in Figure~\ref{fig:sweep_extrap}.
+\end{itemize}
+
+The three forms agree to within $\pm 0.03$ on the existing grid and diverge only in the extrapolation region. The exponential fit best matches the observation that ROC-AUC moved by less than $0.015$ between $n_t{=}13$ and $n_t{=}21$; the logarithmic fit is optimistic because it assumes unbounded (if slow) growth. The honest middle estimate for production mortality ROC-AUC is therefore $\hat{\text{ROC-AUC}} = 0.65 \pm 0.05$, with the lower end more likely if the curve has genuinely saturated. Under no form does the extrapolation close the gap to the real-trained baseline ($0.82$).
+
+$n_{\text{noise}}$ extrapolation is simpler: the $n_{\text{noise}}$-marginalised curve is flat within seed noise across the populated grid, so $n_{\text{noise}}{=}100$ is not expected to change utility by more than a few thousandths. The same logic applies to quality and privacy metrics.
+
+Applying analogous fits to the other metric families, the predicted production-configuration values are:
+
+\begin{table}[h]\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Metric & Best measured & Predicted at $(50, 100)$ & Real-model reference \\
+\midrule
+Mortality ROC-AUC       & $0.658$ ($n_t{=}8$)     & $0.65 \pm 0.05$    & $0.82$ \\
+Mortality F1            & $0.215$ ($n_t{=}13$)    & $0.22 \pm 0.03$    & $0.47$ \\
+LOS macro-F1            & $0.384$ ($n_t{=}13, n_{\text{noise}}{=}2$) & $0.28 \pm 0.05$ & $0.77$ \\
+Avg KS statistic        & $0.603$ ($n_t{=}13$)    & $0.61 \pm 0.02$    & $\approx 0$ \\
+Correlation Frobenius   & $14.25$ ($n_t{=}13$)    & $14.3 \pm 0.5$     & $\approx 0$ \\
+Range violation \%      & $58.59$ ($n_t{=}13$)    & $58 \pm 2$         & $0$ \\
+Transition MSE ratio    & $1.19$ ($n_t{=}1$)      & $\sim 7$--$9$ (degraded) & $1.00$ \\
+DCR median              & $19.6$ ($n_t{=}21$)     & $\sim 19$ (slightly worse privacy) & --- \\
+MIA ROC-AUC             & $0.594$ ($n_t{=}1$)     & $\sim 0.60$ (slightly worse privacy) & $0.50$ (random) \\
+Training time (single cell) & $14{,}906$\,s ($n_t{=}13, n_{\text{noise}}{=}34$) & $\approx 40$\,h & --- \\
+\bottomrule
+\end{tabular}
+\caption{Predicted metric values at the production configuration $(n_t, n_{\text{noise}}){=}(50, 100)$, with best measured value on the current grid and real-model reference for context. Predictions use the honest-middle fit described in the text; $\pm$ intervals are the spread between alternative saturating forms, not formal confidence intervals.}
+\label{tab:sweep_pred}
+\end{table}
+
+\subsection{Synthesis and Implications}
+
+The sweep yields five defensible, critically-read findings.
+
+First, \textbf{$n_t$ dominates utility but saturates early}. The mortality-AUC curve has essentially reached its ceiling by $n_t{=}8$. Doubling or quadrupling $n_t$ from here is a diminishing-returns bet---a small predicted utility gain against a $5\times$--$10\times$ compute cost.
+
+Second, \textbf{$n_{\text{noise}}$ does not materially improve any utility, quality, or privacy metric on this grid}. Its only monotone effect is on training time. Setting $n_{\text{noise}}$ to $100$ rather than a small value is therefore hard to justify on evidence; in fact, reducing $n_{\text{noise}}$ to the single-digit range would save roughly an order of magnitude of compute without measurable TSTR loss. The production choice of $n_{\text{noise}}{=}100$ should be revisited with this evidence.
+
+Third, \textbf{two structural limitations of the architecture bound what the hyperparameters can achieve}: the fixed 48-hour generation window pins stay-length KS at $\approx 0.98$ and damages LOS TSTR at every setting, and the absence of a trajectory-smoothness prior causes the transition-smoothness ratio to \emph{degrade} as $n_t$ grows. Neither can be fixed by tuning $n_t$ or $n_{\text{noise}}$.
+
+Fourth, \textbf{clinical-range violation is the most serious single finding in the sweep}. Roughly $58\%$--$72\%$ of synthetic rows contain at least one out-of-range vital sign, and the rate only partly improves with $n_t$. For any downstream application that requires plausible individual records (not merely plausible aggregates), the pipeline as it stands would need a post-generation clipping or rejection stage, or a loss-level range penalty.
+
+Fifth, \textbf{the privacy picture is cautiously positive but deserves care}. Exact-match rate is zero, DCR baseline protection is saturated at $1.0$, and membership-inference AUC is $\approx 0.60$ (above random but well below the $0.7$--$0.8$ bands typically cited for clear leakage). However, DCR can be flattered by overall distributional drift---the same drift the quality metrics make visible---so the privacy advantage is partly a side-effect of the utility shortfall. A meaningfully higher-utility generator would likely show a meaningfully worse privacy profile; the utility--privacy trade-off should be re-measured at that operating point.
+
+Taken together, the evidence supports running the production configuration as a one-off sanity check but does not support it as an efficient operating point. A better-justified production cell, under the assumptions of the current architecture, would be $(n_t, n_{\text{noise}}){\approx}(8, 3)$---within the saturated utility region, near the temporal-coherence sweet spot, and roughly two orders of magnitude cheaper to train than $(50, 100)$. Further gains beyond that would most likely come from architectural changes (variable-length generation, range-aware loss, smoothness regulariser) rather than additional grid search.

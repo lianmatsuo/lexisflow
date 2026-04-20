@@ -67,14 +67,14 @@ The pipeline is executed as a sequence of numbered scripts. Each script produces
 Extract the first hourly observation for each patient to train the IID hour-0 model:
 
 \begin{verbatim}
-uv run python scripts/00_prepare_hour0_data.py
-uv run python scripts/00b_fit_hour0_preprocessor.py
-uv run python scripts/00c_train_hour0_model.py
+uv run python scripts/prepare_hour0.py
+uv run python scripts/fit_hour0_preprocessor.py
+uv run python scripts/train_hour0.py
 \end{verbatim}
 
 \textbf{Outputs:}
 \begin{itemize}\tightlist
-    \item \texttt{packages/data/processed/hour0\_data.csv}
+    \item \texttt{src/synth\_gen/data/processed/hour0\_data.csv}
     \item \texttt{models/hour0\_preprocessor.pkl}
     \item \texttt{models/hour0\_forest\_flow.pkl}
 \end{itemize}
@@ -84,19 +84,19 @@ uv run python scripts/00c_train_hour0_model.py
 Create the autoregressive training table with lag-1 features:
 
 \begin{verbatim}
-uv run python scripts/01_preprocess_data.py
+uv run python scripts/prepare_autoregressive.py
 \end{verbatim}
 
 This script identifies and drops columns that are 100\% missing, removes datetime columns, creates lagged features for each dynamic column, and separates static from dynamic features.
 
-\textbf{Output:} \texttt{packages/data/processed/autoregressive\_data.csv}
+\textbf{Output:} \texttt{src/synth\_gen/data/processed/autoregressive\_data.csv}
 
 \subsection{Step 1b: Fit Preprocessor}
 
 Fit the tabular preprocessor on the \emph{full} autoregressive dataset using chunked streaming:
 
 \begin{verbatim}
-uv run python scripts/01b_fit_preprocessor.py
+uv run python scripts/fit_autoregressive_preprocessor.py
 \end{verbatim}
 
 This step is critical: fitting on the full dataset ensures that all categorical values and numeric ranges are captured, even rare ones that might be absent in a training subsample.
@@ -108,8 +108,8 @@ This step is critical: fitting on the full dataset ensures that all categorical 
 Train the autoregressive generative model. The backbone is selectable:
 
 \begin{verbatim}
-uv run python scripts/02_train_model.py --model-type hs3f
-uv run python scripts/02_train_model.py --model-type forest-flow
+uv run python scripts/train_autoregressive.py --model-type hs3f
+uv run python scripts/train_autoregressive.py --model-type forest-flow
 \end{verbatim}
 
 The default backbone is \texttt{hs3f}. The script loads \texttt{models/preprocessor\_full.pkl}, transforms the training data, and fits the chosen model.
@@ -121,24 +121,16 @@ The default backbone is \texttt{hs3f}. The script loads \texttt{models/preproces
 Generate synthetic patient trajectories:
 
 \begin{verbatim}
-uv run python scripts/03_generate_synthetic.py
+uv run python scripts/generate.py
 \end{verbatim}
 
 Optional flags include \texttt{--use-hour0} to integrate the hour-0 model for fully synthetic generation (no real initial conditions required), \texttt{--n-patients} to control the number of generated patients, and \texttt{--n-timesteps} to control trajectory length.
 
 \textbf{Output:} \texttt{results/synthetic\_patients.csv}
 
-\subsection{Step 4: Evaluate Quality (Standalone)}
+\subsection{Step 4: Evaluate Quality}
 
-For standalone quality evaluation outside the sweep, compute distributional quality metrics on previously generated synthetic data:
-
-\begin{verbatim}
-uv run python scripts/04_evaluate_quality.py
-\end{verbatim}
-
-This computes per-feature KS statistics, correlation matrix Frobenius norm, and clinical range violation percentages. \textbf{Note:} When using the hyperparameter sweep (\texttt{run\_sweep.py}), quality evaluation is run automatically for each configuration; this standalone script is provided for ad-hoc inspection of a specific generated output.
-
-\textbf{Output:} \texttt{results/quality\_metrics.txt}
+Quality metrics are computed automatically for every sweep cell (KS statistics, correlation Frobenius norm, clinical range violations, privacy diagnostics). Use \texttt{scripts/run\_sweep.py} or the helpers in \texttt{synth\_gen.evaluation} for ad-hoc inspection of a specific generated output.
 
 %==============================================================================
 \section{Hyperparameter Sweep}
@@ -170,7 +162,7 @@ The sweep trains both hour-0 and autoregressive models for each $(n_t, n_{\text{
 To visualise sweep results:
 
 \begin{verbatim}
-uv run python scripts/plot_sweep_results.py
+uv run python scripts/analyze_sweep.py
 \end{verbatim}
 
 %==============================================================================
@@ -182,5 +174,5 @@ The project includes 54 unit tests covering quality metrics, privacy metrics, TS
 \begin{verbatim}
 uv run pytest                    # run all tests
 uv run pytest -v                 # verbose output
-uv run pytest packages/models/   # run model tests only
+uv run pytest src/synth_gen/models/   # run model tests only
 \end{verbatim}

@@ -8,7 +8,7 @@ generation, then aggregates TSTR + quality + privacy + trajectory metrics over
 
 This file is intentionally thin: all heavy lifting (data loading, generator
 training, trajectory sampling, evaluation, schema management) lives in
-:mod:`packages.sweep`. Importing those helpers keeps the sweep driver and the
+:mod:`synth_gen.sweep`. Importing those helpers keeps the sweep driver and the
 matched-backbone comparison driver in lockstep.
 
 Usage:
@@ -27,7 +27,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
-from packages.sweep import (
+from synth_gen.sweep import (
     DEFAULT_N_JOBS,
     SEQUENCE_TIMESTEPS,
     TSTR_TRAJECTORY_SAMPLING_SEEDS,
@@ -52,11 +52,11 @@ from packages.sweep import (
 )
 
 
-NT_VALUES = [1, 3, 5, 7, 9, 11, 13, 15]
-NOISE_VALUES = [1, 3, 5, 7, 9, 11, 13, 15]
+NT_VALUES = [1, 2, 3, 5, 8, 13, 21, 34]
+NOISE_VALUES = [1, 2, 3, 5, 8, 13, 21, 34]
 
-MAX_TRAIN_ROWS = 50000
-N_SYNTH_SAMPLES = 50000
+MAX_TRAIN_ROWS = 100000
+N_SYNTH_SAMPLES = 100000
 
 
 def _build_argparser() -> argparse.ArgumentParser:
@@ -182,10 +182,12 @@ def _run_sweep_cell(
                     autoregressive_inputs.condition_indices,
                     autoregressive_inputs.real_test_path,
                     real_quality_df=autoregressive_inputs.real_quality_df,
+                    real_holdout_df=autoregressive_inputs.real_holdout_df,
                     compute_privacy=compute_privacy,
                     privacy_max_rows=privacy_max_rows,
                     subject_id=synth_sid,
                     hours_in=synth_hours,
+                    eval_seed=traj_seed,
                 )
             )
             run_progress.update(1)
@@ -361,7 +363,7 @@ def main() -> None:
     print(f"  Results saved to: {results_path}")
     print(f"  Hour-0 models saved to: {models_dir}/")
     print("\nNext steps:")
-    print("  • Run plot_sweep_results.py to visualize results")
+    print("  • Run scripts/analyze_sweep.py to visualize results")
 
 
 if __name__ == "__main__":

@@ -178,7 +178,7 @@ Generation:
                      │
                      ▼
     ┌────────────────────────────────────────────┐
-    │  01_preprocess_data.py                     │
+    │  prepare_autoregressive.py                     │
     │  - Drop 100% missing columns (10)          │
     │  - Drop datetime columns (7)               │
     │  - Create autoregressive format (_lag1)    │
@@ -194,7 +194,7 @@ Generation:
                  │
                  ▼
     ┌────────────────────────────────────────────┐
-    │  01b_fit_preprocessor.py (CRITICAL!)       │
+    │  fit_autoregressive_preprocessor.py (CRITICAL!)       │
     │  - Fit on FULL 2.2M rows (streaming)       │
     │  - Learn correct min/max ranges            │
     │  - Encode ALL categorical values           │
@@ -208,7 +208,7 @@ Generation:
     │  - Used by ALL subsequent training         │
     └────────────┬───────────────────────────────┘
                  │
-                 ├────▶ 02_train_model.py
+                 ├────▶ train_autoregressive.py
                  │      - Load preprocessor (pre-fitted)
                  │      - Transform training data (10k sample)
                  │      - Train Forest-Flow (nt=50, noise=100)
@@ -220,7 +220,7 @@ Generation:
                  │      - TSTR evaluation per config
                  │      - Find optimal hyperparameters
                  │
-                 └────▶ 03_generate_synthetic.py
+                 └────▶ generate.py
                         - Load model + preprocessor
                         - Generate trajectories (100 patients × 48h)
                         - Inverse transform to original space
@@ -233,7 +233,7 @@ Generation:
 
 ```
 synth-gen/
-├── packages/                    # Core library (3,281 lines)
+├── src/synth_gen/               # Core library (3,281 lines)
 │   ├── data/                    # Data loading & preprocessing
 │   │   ├── loaders.py           # CSV/Parquet readers
 │   │   ├── transformers.py      # TabularPreprocessor (numeric/cat/binary)
@@ -255,13 +255,13 @@ synth-gen/
 │       ├── preprocessor.py      # TSTRPreprocessor (consistent encoding)
 │       └── __init__.py
 ├── scripts/                     # Numbered workflow scripts
-│   ├── 01_preprocess_data.py    # Data cleaning & AR format
-│   ├── 01b_fit_preprocessor.py  # Fit on full data (CRITICAL)
-│   ├── 02_train_model.py        # Train Forest-Flow
-│   ├── 03_generate_synthetic.py # Generate trajectories
+│   ├── prepare_autoregressive.py    # Data cleaning & AR format
+│   ├── fit_autoregressive_preprocessor.py  # Fit on full data (CRITICAL)
+│   ├── train_autoregressive.py        # Train Forest-Flow
+│   ├── generate.py # Generate trajectories
 │   ├── 04_evaluate_quality.py   # Quality metrics
 │   ├── run_sweep.py             # Hyperparameter search
-│   └── plot_sweep_results.py    # Visualization
+│   └── analyze_sweep.py    # Visualization
 ├── configs/                     # YAML configurations
 │   ├── forest_flow_config.yaml  # Production hyperparameters
 │   └── mortality_classifier_config.yaml
@@ -287,7 +287,7 @@ synth-gen/
 
 ### 1. Data Preprocessing Pipeline
 
-#### Stage 1: Feature Engineering (`01_preprocess_data.py`)
+#### Stage 1: Feature Engineering (`prepare_autoregressive.py`)
 
 **Input**: `flat_table.csv` (2.0GB, 358 columns, 2.2M rows)
 - Hourly-aggregated ICU data from MIMIC-Extract
@@ -333,7 +333,7 @@ synth-gen/
 
 **⚠️ Critical Observation**: The output grows from 2.0GB → 4.9GB (2.45× larger) due to lag feature duplication. This is a fundamental trade-off of autoregressive modeling.
 
-#### Stage 2: Preprocessor Fitting (`01b_fit_preprocessor.py`)
+#### Stage 2: Preprocessor Fitting (`fit_autoregressive_preprocessor.py`)
 
 **Purpose**: Fit preprocessing transformations on **FULL dataset** before training on samples.
 
@@ -413,7 +413,7 @@ Column types:
 
 ### 2. Model Architecture
 
-#### ForestFlow Class (`packages/models/forest_flow.py`)
+#### ForestFlow Class (`src/synth_gen/models/forest_flow.py`)
 
 **Core Components**:
 
@@ -497,7 +497,7 @@ xgb_params = {
 
 ### 3. Generation Pipeline
 
-#### Trajectory Sampling (`packages/models/sampling.py`)
+#### Trajectory Sampling (`src/synth_gen/models/sampling.py`)
 
 **Algorithm**:
 ```
@@ -633,7 +633,7 @@ nt,n_noise,train_time_sec,synth_roc_auc,real_roc_auc,avg_ks_stat,corr_frobenius,
 - Full sweep (64 runs): 9-13 hours
 - With full data (2.2M rows): Impractical (>200 hours)
 
-**Visualization** (`plot_sweep_results.py`):
+**Visualization** (`analyze_sweep.py`):
 - Heatmaps: Performance vs (nt, n_noise)
 - Line charts: Marginal effects
 - Training time analysis
@@ -672,8 +672,8 @@ nt,n_noise,train_time_sec,synth_roc_auc,real_roc_auc,avg_ks_stat,corr_frobenius,
 
 **Current Implementation**:
 ```python
-# 01_preprocess_data.py
-df = pd.read_csv("packages/data/processed/flat_table.csv")  # 2.0GB
+# prepare_autoregressive.py
+df = pd.read_csv("src/synth_gen/data/processed/flat_table.csv")  # 2.0GB
 
 # Step 1: Drop 100% missing columns (10 found via chunk scanning)
 completely_missing = identify_missing_columns_pandas(csv_path)
@@ -695,7 +695,7 @@ df_ar, target_cols, condition_cols = prepare_autoregressive_data(
 # Target: 316, Condition: 339 (21 static + 318 lagged)
 
 # Step 5: Save
-df_ar.to_csv("packages/data/processed/autoregressive_data.csv")
+df_ar.to_csv("src/synth_gen/data/processed/autoregressive_data.csv")
 ```
 
 **Runtime**: ~8 minutes (dominated by CSV I/O on 2.2M rows)
@@ -725,23 +725,23 @@ df_ar.to_csv("packages/data/processed/autoregressive_data.csv")
 ```python
 # Scripts use DIFFERENT data sources:
 
-# 01_preprocess_data.py outputs:
-data_path = "packages/data/processed/autoregressive_data.csv"  # 4.9GB CSV
+# prepare_autoregressive.py outputs:
+data_path = "src/synth_gen/data/processed/autoregressive_data.csv"  # 4.9GB CSV
 
-# 01b_fit_preprocessor.py reads from:
-parquet_path = "packages/data/preprocessed/autoregressive_data.parquet"  # 1.2GB
-csv_path = "packages/data/processed/autoregressive_data.csv"  # 4.9GB
+# fit_autoregressive_preprocessor.py reads from:
+parquet_path = "src/synth_gen/data/preprocessed/autoregressive_data.parquet"  # 1.2GB
+csv_path = "src/synth_gen/data/processed/autoregressive_data.csv"  # 4.9GB
 # Tries parquet first, falls back to CSV
 
-# 02_train_model.py reads from:
-parquet_path = "packages/data/preprocessed/autoregressive_data.parquet"
+# train_autoregressive.py reads from:
+parquet_path = "src/synth_gen/data/preprocessed/autoregressive_data.parquet"
 csv_path = "data/processed/autoregressive_data.csv"  # DIFFERENT path!
 ```
 
 **Problems**:
-- ❌ Inconsistent paths: `data/processed/` vs `packages/data/processed/` vs `packages/data/preprocessed/`
+- ❌ Inconsistent paths: `data/processed/` vs `src/synth_gen/data/processed/` vs `src/synth_gen/data/preprocessed/`
 - ❌ Parquet file mentioned but not generated by preprocessing script
-- ❌ Script `01_preprocess_data.py` outputs CSV, but `01b_fit_preprocessor.py` prefers Parquet
+- ❌ Script `prepare_autoregressive.py` outputs CSV, but `fit_autoregressive_preprocessor.py` prefers Parquet
 - ❌ No documentation on when/how parquet is created
 
 **Impact**: Users may load stale/incorrect data files. This is a **significant reliability issue**.
@@ -853,7 +853,7 @@ The project uses a **3-tier evaluation framework**:
 - Optimal hyperparameters unknown
 
 ⚠️ **Generation Scripts**:
-- `03_generate_synthetic.py` exists but uses old API
+- `generate.py` exists but uses old API
 - May not work with current preprocessor structure
 - No recent test runs
 
@@ -870,7 +870,7 @@ The project uses a **3-tier evaluation framework**:
 
 ❌ **Import Structure** (MEDIUM PRIORITY):
 - README shows `from synth_gen.data import ...` (incorrect)
-- Actual imports: `from packages.data import ...`
+- Actual imports: `from synth_gen.data import ...`
 - `src/` directory mentioned but doesn't exist
 - **This will confuse new users**
 
@@ -904,8 +904,8 @@ The project uses a **3-tier evaluation framework**:
 ```python
 # Different scripts look for data in different places
 "data/processed/autoregressive_data.csv"
-"packages/data/processed/autoregressive_data.csv"
-"packages/data/preprocessed/autoregressive_data.parquet"
+"src/synth_gen/data/processed/autoregressive_data.csv"
+"src/synth_gen/data/preprocessed/autoregressive_data.parquet"
 ```
 
 **Impact**:
@@ -953,7 +953,7 @@ The project uses a **3-tier evaluation framework**:
 
 **Evidence**:
 ```python
-# 01b_fit_preprocessor.py has complex logic:
+# fit_autoregressive_preprocessor.py has complex logic:
 known_binary_features = {...}  # 28 hardcoded features
 known_binary_with_lag = {...}  # Add _lag1 versions
 
@@ -1008,7 +1008,7 @@ for col in all_cols:
 **Evidence**:
 - Terminal output shows successful preprocessing (steps 1, 1b)
 - No evidence of successful training, generation, or evaluation runs
-- `03_generate_synthetic.py` uses API that may be outdated
+- `generate.py` uses API that may be outdated
 - `results/` directory has only old files (Dec 16, Feb 16)
 
 **What's Untested** (likely broken):
@@ -1025,8 +1025,8 @@ for col in all_cols:
 
 1. **Import Structure**:
    - README: `from synth_gen.data import ...` ❌
-   - Actual: `from packages.data import ...` ✅
-   - Docs reference `src/forest_flow/` directory (doesn't exist)
+   - Actual: `from synth_gen.data import ...` ✅
+   - Historical note: earlier docs referenced a `src/forest_flow/` directory; package is now `src/synth_gen/`
 
 2. **Static Columns**:
    - Docs say "28 static columns"
@@ -1034,12 +1034,11 @@ for col in all_cols:
 
 3. **File Paths**:
    - README: `data/processed/autoregressive_data.csv`
-   - Actual: `packages/data/processed/autoregressive_data.csv`
+   - Actual: `src/synth_gen/data/processed/autoregressive_data.csv`
 
 4. **Project Structure**:
-   - README shows `src/synth_gen/` structure
-   - Actual uses `packages/` structure
-   - Git history shows recent refactoring (files deleted)
+   - README and code both use `src/synth_gen/` (PyPA src layout)
+   - Historical note: earlier versions used a top-level `packages/` directory
 
 **Impact**: New users or collaborators will be confused, copy-paste examples won't work.
 
@@ -1047,12 +1046,12 @@ for col in all_cols:
 
 **Two Different Approaches**:
 
-1. **In Preprocessor** (`packages/data/transformers.py`):
+1. **In Preprocessor** (`src/synth_gen/data/transformers.py`):
    - Has `binary_cols` parameter
    - Auto-rounds in `inverse_transform()`
    - Clean, built-in solution
 
-2. **In TSTR** (`packages/evaluation/tstr.py`):
+2. **In TSTR** (`src/synth_gen/evaluation/tstr.py`):
    - Manual post-processing:
    ```python
    binary_features = ['vent', 'vaso', 'adenosine', ...]
@@ -1097,7 +1096,7 @@ Categorical column verification:
 - `configs/forest_flow_config.yaml` exists but NOT USED
 - Scripts have hardcoded values:
   ```python
-  # scripts/02_train_model.py
+  # scripts/train_autoregressive.py
   nt = 50
   n_noise = 100
   max_rows = 10000
@@ -1113,7 +1112,7 @@ Categorical column verification:
 
 **Data Files**:
 ```
-packages/data/processed/:
+src/synth_gen/data/processed/:
   - flat_table.csv: 2.0GB (input)
   - autoregressive_data.csv: 4.9GB (intermediate)
   - static_data.csv: 8MB
@@ -1547,7 +1546,7 @@ df.columns = ['_'.join(col) if isinstance(col, tuple) else col for col in df.col
 ### Immediate (Required for Completion)
 
 1. **Fix Data Path Inconsistencies** (1 hour):
-   - Standardize on `packages/data/processed/` or `data/processed/`
+   - Standardize on `src/synth_gen/data/processed/` or `data/processed/`
    - Update ALL scripts to use consistent paths
    - Add path validation at start of each script
 
@@ -1580,7 +1579,7 @@ df.columns = ['_'.join(col) if isinstance(col, tuple) else col for col in df.col
    ```
 
 6. **Standardize on Parquet** (2-3 hours):
-   - Modify `01_preprocess_data.py` to output Parquet
+   - Modify `prepare_autoregressive.py` to output Parquet
    - Update all scripts to prefer Parquet
    - Add conversion utility for legacy CSV
 

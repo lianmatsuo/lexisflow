@@ -33,7 +33,7 @@ The sweep framework systematically explores the hyperparameter space of Forest-F
 ┌─────────────────────────────────────────────────┐
 │  Load Preprocessor & Memmap Data                │
 │  - Reuse cached preprocessor (fitted on FULL   │
-│    2.2M rows via scripts/01b_fit_preprocessor.py) │
+│    2.2M rows via scripts/fit_autoregressive_preprocessor.py) │
 │  - Ensures correct min/max ranges & all rare   │
 │    categorical values are captured             │
 │  - Load memmap arrays (target + condition)     │
@@ -71,7 +71,7 @@ The sweep framework systematically explores the hyperparameter space of Forest-F
 ### Key Components
 
 1. **`run_sweep.py`** - Main orchestrator script
-2. **`plot_sweep_results.py`** - Visualization and analysis
+2. **`analyze_sweep.py`** - Visualization and analysis
 3. **`results/sweep_results.csv`** - Metrics storage (CSV for easy inspection)
 4. **`results/sweep_plots/`** - Generated heatmaps and trend plots
 
@@ -117,7 +117,7 @@ The sweep framework systematically explores the hyperparameter space of Forest-F
 **Solution (Step 1b)**:
 ```bash
 # Run once to fit on full data
-uv run python scripts/01b_fit_preprocessor.py
+uv run python scripts/fit_autoregressive_preprocessor.py
 ```
 
 **Benefits**:
@@ -128,7 +128,7 @@ uv run python scripts/01b_fit_preprocessor.py
 
 **Implementation**:
 - Uses `partial_fit()` to stream through data in chunks (memory-efficient)
-- Saves to `models/preprocessor_full.pkl` and `packages/data/preprocessed/preprocessor_fitted.pkl`
+- Saves to `artifacts/preprocessor_full.pkl` (single canonical location)
 - Training scripts automatically detect and load pre-fitted preprocessor
 - Only needs to run once (reuse for all subsequent training runs)
 
@@ -574,7 +574,7 @@ for nt in NT_VALUES:
 
 ### Generated Plots
 
-**Script**: `scripts/plot_sweep_results.py`
+**Script**: `scripts/analyze_sweep.py`
 
 **Output Directory**: `results/sweep_plots/`
 
@@ -721,7 +721,7 @@ uv run python scripts/run_sweep.py --train-rows 20000
 
 ```bash
 # After sweep completes (or during, for partial results)
-uv run python scripts/plot_sweep_results.py
+uv run python scripts/analyze_sweep.py
 
 # Output:
 #   results/sweep_plots/sweep_heatmap.png
@@ -830,7 +830,7 @@ uv run python scripts/run_sweep.py
 1. Exact batch sizes (last batch can't be smaller)
 2. Proper iterator protocol implementation
 
-**Solution**: Modified `FlowMatchingDataIterator` in `src/forest_flow/model.py`:
+**Solution**: Modified `FlowMatchingDataIterator` in `src/synth_gen/models/iterator.py`:
 ```python
 def __iter__(self):
     while True:  # Infinite loop

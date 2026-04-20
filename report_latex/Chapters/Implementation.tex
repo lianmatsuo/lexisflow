@@ -39,7 +39,7 @@ $\overline{\mathrm{KS}}$, $\|\Delta C\|_F$, range-violation \% &
 \S~\textbf{Distributional Quality Metrics}; \S~\textbf{Empirical Outcomes from the Current Sweep} \\
 \midrule
 Privacy-preservation risk checks &
-\code{packages/evaluation/privacy\_metrics.py} (DCR + membership attack) &
+\code{src/synth_gen/evaluation/privacy\_metrics.py} (DCR + membership attack) &
 DCR median/match rate; baseline/overfit scores; MIA ROC-AUC &
 \S~\textbf{Privacy Risk Metrics}; \S~\textbf{Key Implementation File Map} \\
 \midrule
@@ -62,8 +62,8 @@ The current end-to-end workflow is implemented as numbered scripts with explicit
     \item \code{00\_prepare\_hour0\_data.py} and \code{00b\_fit\_hour0\_preprocessor.py}
           prepare and encode hour-0 training data.
     \item \code{00c\_train\_hour0\_model.py} trains an IID generator.
-    \item \code{01\_preprocess\_data.py} creates autoregressive tabular rows.
-    \item \code{01b\_fit\_preprocessor.py} fits the full-data autoregressive preprocessor.
+    \item \code{01\_preprocess\_data.py} creates autoregressive tabular rows and carves patient-disjoint train / test / holdout splits (\code{autoregressive\_data.csv}, \code{real\_test.csv}, \code{real\_holdout.csv}).
+    \item \code{01b\_fit\_preprocessor.py} fits the full-data autoregressive preprocessor on the training cohort.
     \item \code{02\_train\_model.py} trains the autoregressive generator.
     \item \code{03\_generate\_synthetic.py} loads model artifacts and exports synthetic samples.
     \item \code{run\_sweep.py} performs unified hour-0 + autoregressive hyperparameter search.
@@ -110,8 +110,8 @@ For HS3F categorical dimensions, training remaps observed categories to contiguo
 The training remap yields contiguous class indexing under arbitrary subsampling without sparse multiclass labels at fit time.
 
 For continuous targets under Forest-Flow, sampling follows explicit first-order integration.
-Forest-Flow integrates the backward flow with explicit Euler updates (\code{X\_t += h * Y\_hat}) in \code{packages/models/forest\_flow.py}.
-HS3F continuous dimensions default to \code{solver="rk4"} in \code{packages/models/hs3f.py}, with \code{solver="euler"} available as an alternative.
+Forest-Flow integrates the backward flow with explicit Euler updates (\code{X\_t += h * Y\_hat}) in \code{src/synth_gen/models/forest\_flow.py}.
+HS3F continuous dimensions default to \code{solver="rk4"} in \code{src/synth_gen/models/hs3f.py}, with \code{solver="euler"} available as an alternative.
 
 %==============================================================================
 \section{Sampling and Reconstruction}
@@ -144,6 +144,27 @@ This step is intended to restore discrete $\{0,1\}$ semantics for binary treatme
 %==============================================================================
 \section{Evaluation Stack}
 %==============================================================================
+
+\subsection{Cohort-Level Data Splits}
+\label{sec:cohort-splits}
+
+All utility, fidelity, and privacy metrics are computed against real-data cohorts that are patient-disjoint from the generator's training cohort.
+At preprocessing time (\code{scripts/01\_preprocess\_data.py}), the autoregressive table is partitioned at the \code{subject\_id} level into three CSVs with an 80\,/\,10\,/\,10 split drawn from a fixed RNG seed so the partition is reproducible across runs:
+\begin{itemize}\tightlist
+    \item \code{data/processed/autoregressive\_data.csv} -- the training cohort (80\,\% of patients), the only file the generator ever sees.
+    \item \code{data/processed/real\_test.csv} -- a TSTR / fidelity reference cohort (10\,\% of patients).
+    \item \code{data/processed/real\_holdout.csv} -- a privacy-evaluation holdout cohort (10\,\% of patients).
+\end{itemize}
+
+Because the split is performed on \code{subject\_id}, no patient's timesteps ever span the training cohort and an evaluation cohort.
+Consequently:
+\begin{itemize}\tightlist
+    \item Multi-task TSTR (\S~\textbf{Multi-Task TSTR}) trains classifiers on synthetic data and tests them on sequences drawn from \code{real\_test.csv}; the real-trained baseline classifier is also fit and evaluated entirely within this disjoint cohort via an internal stratified split (\code{test\_size=0.3}).
+    \item The distributional fidelity metrics (KS, correlation Frobenius norm, range-violation rate) are computed against a sample of \code{real\_test.csv} rather than the training matrix, so they measure distributional recovery of \emph{unseen} rows rather than reproduction of the training set.
+    \item The DCR overfitting-protection and DOMIAS-style membership-inference attack use \code{real\_holdout.csv} directly as the holdout reference, giving the overfitting-vs-generalisation comparison a meaningful signal even when the generator is expressive enough to memorise.
+\end{itemize}
+
+The split is materialised once per preprocessing run and referenced explicitly by \code{AutoregressiveInputs.real\_test\_path} and \code{AutoregressiveInputs.real\_holdout\_df} in \code{src/synth_gen/sweep/data\_prep.py}, ensuring the sweep driver, the matched backbone-comparison driver, and any future evaluation scripts consume byte-identical reference cohorts.
 
 \subsection{Multi-Task TSTR}
 
@@ -199,7 +220,7 @@ Baseline protection follows the SDMetrics ratio form \cite{sdmetricsPrivacyDocs}
 \mathrm{Score}_{\text{baseline}}=\min\left(1,\frac{\mathrm{median}\,\mathrm{DCR}_{\text{synth}\rightarrow\text{train}}}{\mathrm{median}\,\mathrm{DCR}_{\text{random}\rightarrow\text{train}}}\right).
 \end{equation}
 
-Overfitting protection compares train-vs-holdout nearest-neighbor proximity for synthetic rows:
+Overfitting protection compares train-vs-holdout nearest-neighbor proximity for synthetic rows, where the holdout is the patient-disjoint \code{real\_holdout.csv} cohort defined in \S\ref{sec:cohort-splits}:
 \begin{equation}
 \mathrm{Score}_{\text{overfit}}=\min\left(1,\,2\left(1-\Pr\left[\mathrm{DCR}_{\text{synth}\rightarrow\text{train}} < \mathrm{DCR}_{\text{synth}\rightarrow\text{holdout}}\right]\right)\right).
 \end{equation}
@@ -208,7 +229,7 @@ Membership risk is quantified with a DOMIAS-style local overfitting score \cite{
 \begin{equation}
 s(x)=\log\frac{d_{\text{ref}}(x)+\epsilon}{d_{\text{synth}}(x)+\epsilon},
 \end{equation}
-where $d_{\text{synth}}$ is nearest-neighbor distance to synthetic data and $d_{\text{ref}}$ is distance to an attacker reference set drawn from holdout data.
+where $d_{\text{synth}}$ is nearest-neighbor distance to synthetic data and $d_{\text{ref}}$ is distance to the patient-disjoint holdout cohort, so a non-zero attacker advantage can only reflect closeness to training patients rather than to the evaluation cohort itself.
 Attack performance is reported via ROC-AUC (and attacker advantage) in the membership-inference paradigm \cite{shokri2017membership}.
 
 \paragraph{Interpretation guardrail.}
@@ -219,6 +240,7 @@ DCR-style proximity metrics are useful diagnostics but should not be treated as 
 The canonical log \code{results/sweep\_results.csv} covers a $5 \times 8 = 40$-cell grid over $n_t \in \{1,3,5,7,9\}$ and $n_{\text{noise}} \in \{1,3,5,7,9,11,13,15\}$.
 At the time of writing, $35$ cells are complete under the single-seed HS3F sweep and the remaining $5$ cells at $n_t=9$, $n_{\text{noise}} \in \{7,9,11,13,15\}$ are in progress; figures in this subsection therefore describe $35/40$ of the grid.
 Seed-level uncertainty columns (\code{*\_std}, \code{*\_ci95}, \code{trajectory\_seed\_count}) are part of the \code{SWEEP\_RESULT\_COLUMNS} schema but are populated only in the matched-cell backbone comparison (\S\ref{sec:backbone-comparison}); the main-grid results below are single-seed point estimates.
+When the multi-seed protocol is active, each trajectory-sampling seed in \code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} also drives the evaluator \code{random\_state} (real/synthetic train-test split, real-baseline classifier fit, and privacy-attack subsampling), so the reported \code{\_std} and \code{\_ci95} columns capture both trajectory-sampling variance and evaluator variance rather than trajectory-sampling variance alone.
 The following subsections present findings across four dimensions: downstream utility (TSTR), distributional quality, computational cost, and extrapolation analysis.
 All figures are generated by \code{scripts/plot\_sweep\_results.py} from the canonical sweep CSV.
 
@@ -332,7 +354,7 @@ These trends indicate that the remaining utility gap is structural rather than a
 \subsubsection{Backbone Comparison and CTGAN Baseline}
 \label{sec:backbone-comparison}
 
-To directly contrast the two tree-based backbones and a neural reference baseline, \code{scripts/run\_matched\_backbone\_comparison.py} executes HS3F, ForestFlow, and CTGAN/CRGAN at a shared cell $(n_t{=}5, n_{\text{noise}}{=}5)$ with identical training rows ($50{,}000$), synthetic sample budget ($50{,}000$), and three trajectory seeds per backbone. CTGAN is adapted through \code{packages/models/ctgan\_adapter.py} into the same training and evaluation interface; it is trained on the transformed joint table and sampled without per-row autoregressive conditioning, providing a pragmatic lower-bound reference rather than a matched autoregressive competitor (see the \S\textbf{Baseline Scope and Interpretation} discussion in the Evaluation chapter). Table~\ref{tab:backbone-matched} summarises the matched-cell outcomes.
+To directly contrast the two tree-based backbones and a neural reference baseline, \code{scripts/run\_matched\_backbone\_comparison.py} executes HS3F, ForestFlow, and CTGAN/CRGAN at a shared cell $(n_t{=}5, n_{\text{noise}}{=}5)$ with identical training rows ($50{,}000$), synthetic sample budget ($50{,}000$), and three trajectory seeds per backbone. CTGAN is adapted through \code{src/synth_gen/models/ctgan\_adapter.py} into the same training and evaluation interface; it is trained on the transformed joint table and sampled without per-row autoregressive conditioning, providing a pragmatic lower-bound reference rather than a matched autoregressive competitor (see the \S\textbf{Baseline Scope and Interpretation} discussion in the Evaluation chapter). Table~\ref{tab:backbone-matched} summarises the matched-cell outcomes.
 
 \begin{table}[htbp]
 \centering
@@ -411,7 +433,7 @@ The backbone-axis evidence rests on a single matched $(n_t, n_{\text{noise}})$ c
 \subsubsection{Trajectory-Level Coherence Metrics}
 \label{sec:trajectory-coherence}
 
-The trajectory-level metrics defined in the Evaluation chapter (autocorrelation distance, stay-length KS, transition smoothness ratio, temporal cross-feature correlation drift) are implemented in \code{packages/evaluation/trajectory\_metrics.py} and integrated into \code{run\_sweep.py}, with dedicated unit coverage in \code{packages/evaluation/tests/test\_trajectory\_metrics.py}. Matched-cell numerical values for all three backbones at $(n_t{=}5, n_{\text{noise}}{=}5)$ appear in Table~\ref{tab:backbone-trajectory}. The main grid \code{results/sweep\_results.csv} predates the trajectory-column additions, so a full-grid sweep of these metrics is deferred to the next canonical regeneration (tracked in \code{STATUS\_TRACKER.md} under ``Matched backbone comparison'' and ``Statistical reliability''). Implementation correctness is independently established by the unit tests, which verify:
+The trajectory-level metrics defined in the Evaluation chapter (autocorrelation distance, stay-length KS, transition smoothness ratio, temporal cross-feature correlation drift) are implemented in \code{src/synth_gen/evaluation/trajectory\_metrics.py} and integrated into \code{run\_sweep.py}, with dedicated unit coverage in \code{src/synth_gen/evaluation/tests/test\_trajectory\_metrics.py}. Matched-cell numerical values for all three backbones at $(n_t{=}5, n_{\text{noise}}{=}5)$ appear in Table~\ref{tab:backbone-trajectory}. The main grid \code{results/sweep\_results.csv} predates the trajectory-column additions, so a full-grid sweep of these metrics is deferred to the next canonical regeneration (tracked in \code{STATUS\_TRACKER.md} under ``Matched backbone comparison'' and ``Statistical reliability''). Implementation correctness is independently established by the unit tests, which verify:
 \begin{itemize}\tightlist
     \item zero values when real and synthetic trajectories are identical (sanity bound);
     \item monotonic degradation as synthetic trajectories are perturbed with progressively larger noise;
@@ -555,7 +577,7 @@ Our implementation is grounded in:
     \item XGBoost as the core function approximator \cite{chen2016xgboost}.
 \end{itemize}
 
-Common synthetic tabular/time-series baselines include CTGAN \cite{xu2019ctgan}, TimeGAN \cite{yoon2019timegan}, TabDDPM \cite{kotelnikov2023tabddpm}, TabSyn \cite{zhang2024tabsyn}, and SDV ecosystem tooling \cite{sdvproject}. In this project, CTGAN/CRGAN is integrated through \code{packages/models/ctgan\_adapter.py} as a pragmatic lower-bound/reference baseline inside the same data and metric pipeline; numerical results from the matched three-seed comparison at $(n_t{=}5, n_{\text{noise}}{=}5)$ appear in \S\ref{sec:backbone-comparison}. However, CTGAN is not implemented as a fully autoregressive per-row conditioned generator: adding that behaviour would require an architecture change (new sequential conditioning/generation design), which is outside the thesis scope. Transformer-based generators such as GReaT \cite{borisov2023great} and REaLTabFormer \cite{solatorio2023realtabformer} remain future comparison points.
+Common synthetic tabular/time-series baselines include CTGAN \cite{xu2019ctgan}, TimeGAN \cite{yoon2019timegan}, TabDDPM \cite{kotelnikov2023tabddpm}, TabSyn \cite{zhang2024tabsyn}, and SDV ecosystem tooling \cite{sdvproject}. In this project, CTGAN/CRGAN is integrated through \code{src/synth_gen/models/ctgan\_adapter.py} as a pragmatic lower-bound/reference baseline inside the same data and metric pipeline; numerical results from the matched three-seed comparison at $(n_t{=}5, n_{\text{noise}}{=}5)$ appear in \S\ref{sec:backbone-comparison}. However, CTGAN is not implemented as a fully autoregressive per-row conditioned generator: adding that behaviour would require an architecture change (new sequential conditioning/generation design), which is outside the thesis scope. Transformer-based generators such as GReaT \cite{borisov2023great} and REaLTabFormer \cite{solatorio2023realtabformer} remain future comparison points.
 
 %==============================================================================
 \section{Key Implementation File Map}
@@ -568,15 +590,15 @@ Common synthetic tabular/time-series baselines include CTGAN \cite{xu2019ctgan},
 \toprule
 \textbf{File} & \textbf{Role in Current Architecture} \\
 \midrule
-\code{packages/data/transformers.py} & Tabular preprocessor (label encoding, inverse decode, feature typing metadata). \\
+\code{src/synth_gen/data/transformers.py} & Tabular preprocessor (label encoding, inverse decode, feature typing metadata). \\
 \midrule
-\code{packages/models/forest\_flow.py} & Flow-matching tree backbone with conditional clean/noisy split and Euler sampling path. \\
+\code{src/synth_gen/models/forest\_flow.py} & Flow-matching tree backbone with conditional clean/noisy split and Euler sampling path. \\
 \midrule
-\code{packages/models/hs3f.py} & Heterogeneous sequential generator (continuous flow + categorical classifiers, RK4 option). \\
+\code{src/synth_gen/models/hs3f.py} & Heterogeneous sequential generator (continuous flow + categorical classifiers, RK4 option). \\
 \midrule
-\code{packages/evaluation/tstr\_framework.py} & Unified multi-task TSTR tasks and evaluation loop. \\
+\code{src/synth_gen/evaluation/tstr\_framework.py} & Unified multi-task TSTR tasks and evaluation loop. \\
 \midrule
-\code{packages/evaluation/privacy\_metrics.py} & Privacy evaluation module (DCR summaries, baseline/overfit protection scores, DOMIAS-style membership inference attack). \\
+\code{src/synth_gen/evaluation/privacy\_metrics.py} & Privacy evaluation module (DCR summaries, baseline/overfit protection scores, DOMIAS-style membership inference attack). \\
 \midrule
 \code{scripts/01b\_fit\_preprocessor.py} & Full-data preprocessor fit; persists semantic columns and transformed index splits. \\
 \midrule

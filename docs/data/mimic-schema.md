@@ -130,7 +130,7 @@ PATIENTS (subject_id) ──┐
 ### Identifying Static vs Dynamic
 
 ```python
-from src.forest_flow import load_static_columns, split_static_dynamic
+from synth_gen.models.utils import load_static_columns, split_static_dynamic
 
 # Load all static columns
 static_cols = load_static_columns()  # Returns 28 columns

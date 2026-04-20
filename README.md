@@ -29,32 +29,29 @@ uv sync
 
 ```bash
 # Step 1: Preprocess data into autoregressive format
-uv run python scripts/01_preprocess_data.py
+uv run python scripts/prepare_autoregressive.py
 
 # Step 1b: Fit preprocessor on FULL dataset (CRITICAL!)
 # Ensures correct min/max ranges and captures all categorical values
-uv run python scripts/01b_fit_preprocessor.py
+uv run python scripts/fit_autoregressive_preprocessor.py
 
 # Step 2: Train model (uses pre-fitted preprocessor)
-uv run python scripts/02_train_model.py
+uv run python scripts/train_autoregressive.py
 
 # Optional: quick/scalable overrides for local hardware
 # - use fewer rows for fast iteration
 # - tune nt / n_noise / n_jobs without editing code
-uv run python scripts/02_train_model.py \
+uv run python scripts/train_autoregressive.py \
   --max-rows 5000 \
   --nt 10 \
   --n-noise 10 \
   --n-jobs 8
 
 # Step 3: Generate synthetic data
-uv run python scripts/03_generate_synthetic.py
+uv run python scripts/generate.py
 
-# Step 4: Evaluate quality
-uv run python scripts/04_evaluate_quality.py
-
-# Step 4b: Evaluate privacy risk (DCR + membership inference)
-uv run python -m packages.evaluation.privacy_metrics \
+# Step 4: Evaluate privacy risk (DCR + membership inference)
+uv run python -m synth_gen.evaluation.privacy_metrics \
   --real-data data/processed/flat_table.csv \
   --synthetic-data results/synthetic_patients.csv \
   --output-path results/privacy_metrics.json
@@ -76,17 +73,14 @@ Generate patients without requiring real data as input:
 
 ```bash
 # Step 0: Prepare and train Hour-0 model
-uv run python scripts/00_prepare_hour0_data.py       # Extract hour-0 states
-uv run python scripts/00b_fit_hour0_preprocessor.py  # Fit preprocessor
-uv run python scripts/00c_train_hour0_model.py       # Train IID model
-
-# Step 0d (optional): Evaluate hour-0 quality
-uv run python scripts/05_evaluate_hour0_model.py
+uv run python scripts/prepare_hour0.py       # Extract hour-0 states
+uv run python scripts/fit_hour0_preprocessor.py  # Fit preprocessor
+uv run python scripts/train_hour0.py       # Train IID model
 
 # Then run normal workflow (steps 1, 1b, 2 from above)
 
 # Step 3: Generate fully synthetic patients (no real data needed!)
-uv run python scripts/03_generate_synthetic.py --use-hour0 --n-patients 100 --n-timesteps 48
+uv run python scripts/generate.py --use-hour0 --n-patients 100 --n-timesteps 48
 ```
 
 **Two-Stage Architecture:**
@@ -117,7 +111,7 @@ See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for complete detail
 uv run python scripts/run_sweep.py
 
 # Visualize results
-uv run python scripts/plot_sweep_results.py
+uv run python scripts/analyze_sweep.py
 ```
 
 **🆕 Unified Training:**
@@ -138,7 +132,6 @@ The sweep automatically trains **both models** with identical hyperparameters:
 | [PROJECT_ARCHITECTURE.md](docs/architecture/PROJECT_ARCHITECTURE.md) | Comprehensive project overview & critical analysis |
 | [scripts/WORKFLOW.md](scripts/WORKFLOW.md) | Complete workflow guide & script usage |
 | [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) | Hyperparameter sweep details & TSTR |
-| [docs/guides/autoregressive-forest-flow.md](docs/guides/autoregressive-forest-flow.md) | Autoregressive Forest-Flow guide |
 | [report_latex/](report_latex/) | LaTeX thesis |
 
 ## Code Quality Improvements
@@ -153,7 +146,7 @@ Recent complexity reduction efforts have significantly improved code maintainabi
 5. **Removed legacy files:** Cleaned up outdated code and documentation
 
 ### Feature Utilities Module
-The `packages/data/feature_utils.py` module provides centralized utilities:
+The `src/synth_gen/data/feature_utils.py` module provides centralized utilities:
 - `flatten_column_names()` - Convert tuple columns to strings
 - `is_lagged()` - Detect lagged features
 - `is_binary_feature()` - Identify binary 0/1 features
@@ -166,33 +159,31 @@ The `packages/data/feature_utils.py` module provides centralized utilities:
 - Easier testing and onboarding
 - Fewer edge cases and bugs
 
-See [docs/COMPLEXITY_REDUCTION_PLAN.md](docs/COMPLEXITY_REDUCTION_PLAN.md) for full details.
-
 ## Testing
 
 Run unit tests to verify core functionality:
 
 ```bash
-# Run all tests (tests are colocated with code in packages/)
+# Run all tests (tests are colocated with code in src/synth_gen/)
 uv run pytest
 
 # Run specific package tests
-uv run pytest packages/data/tests/
-uv run pytest packages/models/tests/
-uv run pytest packages/evaluation/tests/
+uv run pytest src/synth_gen/data/tests/
+uv run pytest src/synth_gen/models/tests/
+uv run pytest src/synth_gen/evaluation/tests/
 
 # Run specific test file
-uv run pytest packages/data/tests/test_transformers.py
+uv run pytest src/synth_gen/data/tests/test_transformers.py
 
 # Run with coverage
-uv run pytest --cov=packages --cov-report=html
+uv run pytest --cov=synth_gen --cov-report=html
 ```
 
 ## Project Structure
 
 ```
 synth-gen/
-├── packages/                    # Core library modules
+├── src/synth_gen/               # Core library modules
 │   ├── data/                    # Data loading, preprocessing, autoregressive prep
 │   │   ├── transformers.py      # TabularPreprocessor
 │   │   ├── autoregressive.py    # Lag feature creation
@@ -218,15 +209,15 @@ synth-gen/
 │       ├── data_prep.py         # Preprocessor + cache loading
 │       └── tests/               # Unit tests
 ├── scripts/                     # Workflow scripts
-│   ├── 00_prepare_hour0_data.py  # Extract hour-0 states
-│   ├── 00b_fit_hour0_preprocessor.py
-│   ├── 00c_train_hour0_model.py  # Train IID model
-│   ├── 01_preprocess_data.py     # Create autoregressive format
-│   ├── 01b_fit_preprocessor.py   # Fit preprocessor on full data
-│   ├── 02_train_model.py         # Train autoregressive model
-│   ├── 03_generate_synthetic.py  # Generate synthetic patients
-│   ├── run_sweep.py              # Hyperparameter sweep
-│   └── plot_sweep_results.py     # Visualize sweep results
+│   ├── prepare_hour0.py              # Extract hour-0 states
+│   ├── fit_hour0_preprocessor.py     # Fit hour-0 preprocessor
+│   ├── train_hour0.py                # Train IID model
+│   ├── prepare_autoregressive.py     # Create autoregressive format
+│   ├── fit_autoregressive_preprocessor.py   # Fit preprocessor on full data
+│   ├── train_autoregressive.py       # Train autoregressive model
+│   ├── generate.py                   # Generate synthetic patients
+│   ├── run_sweep.py                  # Hyperparameter sweep
+│   └── analyze_sweep.py              # Visualize sweep results
 ├── data/                        # Data files (gitignored)
 │   └── processed/               # Preprocessed CSVs
 ├── artifacts/                   # Trained model artifacts (gitignored)
@@ -240,12 +231,12 @@ synth-gen/
 **🎉 Clean Import Structure:**
 ```python
 # Professional, modular imports
-from packages.data.transformers import TabularPreprocessor
-from packages.data.autoregressive import prepare_autoregressive_data
-from packages.models.forest_flow import ForestFlow
-from packages.models.sampling import sample_trajectory
-from packages.evaluation.quality_metrics import compute_quality_metrics
-from packages.mortality.model import MortalityClassifier
+from synth_gen.data.transformers import TabularPreprocessor
+from synth_gen.data.autoregressive import prepare_autoregressive_data
+from synth_gen.models.forest_flow import ForestFlow
+from synth_gen.models.sampling import sample_trajectory
+from synth_gen.evaluation.quality_metrics import compute_quality_metrics
+from synth_gen.mortality.model import MortalityClassifier
 ```
 
 ## Key Parameters

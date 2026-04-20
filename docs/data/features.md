@@ -105,7 +105,7 @@ hours_in, hr, bp, age, gender, hr_lag1, bp_lag1
 ### Automatic Detection
 
 ```python
-from src.forest_flow import split_static_dynamic
+from synth_gen.data.autoregressive import split_static_dynamic
 
 df = pd.read_csv("data/processed/flat_table.csv")
 static_cols, dynamic_cols = split_static_dynamic(df)
@@ -220,5 +220,4 @@ feature_cols = [c for c in df.columns if c not in id_cols + ['hours_in']]
 ## References
 
 - [MIMIC-III Schema](mimic-schema.md)
-- [Data Processing](../../data/processed/COMPLETE_DATA_PROCESSING_DOCUMENTATION.md)
-- [Autoregressive Guide](../guides/autoregressive-forest-flow.md)
+- [Data Processing](processing.md)
