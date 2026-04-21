@@ -11,13 +11,13 @@ should not be used as model features. This is consistent with the autoregressive
 pipeline where IDs are kept in the CSV but excluded via split_static_dynamic().
 
 Usage:
-    uv run python scripts/fit_hour0_preprocessor.py
+    uv run python scripts/mimic/fit_hour0_preprocessor.py
 
 Input:
     data/processed/hour0_data.csv
 
 Output:
-    models/hour0_preprocessor.pkl
+    artifacts/hour0_preprocessor.pkl
 """
 
 import sys
@@ -153,7 +153,7 @@ def main():
         "int_cols": int_cols,
     }
 
-    # Save to models/ directory
+    # Save to artifacts/ directory
     print(f"\nSaving fitted preprocessor to {preprocessor_output}...")
     Path(preprocessor_output).parent.mkdir(parents=True, exist_ok=True)
 
@@ -170,7 +170,7 @@ def main():
     print(f"   Output features: {preprocessor.n_features} (after encoding)")
     print("\n" + "=" * 70)
     print("Next steps:")
-    print("  1. Run scripts/train_hour0.py to train Hour-0 Forest-Flow")
+    print("  1. Run scripts/mimic/train_hour0.py to train Hour-0 Forest-Flow")
     print("=" * 70)
 
 

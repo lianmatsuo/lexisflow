@@ -25,62 +25,27 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 ```
 
-### 2. Run Complete Workflow
+### 2. Run Complete Workflow (Single Command)
 
 ```bash
-# Step 1: Preprocess data into autoregressive format
-uv run python scripts/prepare_autoregressive.py
+# MIMIC pipeline: prepare data + fit preprocessors + run full sweep
+uv run python scripts/run_sweep.py --dataset mimic
 
-# Step 1b: Fit preprocessor on FULL dataset (CRITICAL!)
-# Ensures correct min/max ranges and captures all categorical values
-uv run python scripts/fit_autoregressive_preprocessor.py
+# Fast smoke preset for quick validation
+uv run python scripts/run_sweep.py --dataset mimic --profile smoke
 
-# Step 2: Train model (uses pre-fitted preprocessor)
-uv run python scripts/train_autoregressive.py
-
-# Optional: quick/scalable overrides for local hardware
-# - use fewer rows for fast iteration
-# - tune nt / n_noise / n_jobs without editing code
-uv run python scripts/train_autoregressive.py \
-  --max-rows 5000 \
-  --nt 10 \
-  --n-noise 10 \
-  --n-jobs 8
-
-# Step 3: Generate synthetic data
-uv run python scripts/generate.py
-
-# Step 4: Evaluate privacy risk (DCR + membership inference)
-uv run python -m lexisflow.evaluation.privacy_metrics \
-  --real-data data/processed/flat_table.csv \
-  --synthetic-data results/synthetic_patients.csv \
-  --output-path results/privacy_metrics.json
+# Optional: clear generated data/preprocessors/cache/results, then rerun
+uv run python scripts/run_sweep.py --dataset mimic --reset
 ```
 
-**Outputs:**
-- `data/processed/autoregressive_data.csv` - Preprocessed data
-- `artifacts/preprocessor_full.pkl` - Pre-fitted preprocessor (on full data)
-- `artifacts/forest_flow_model.pkl` - Trained model
-- `results/synthetic_patients.csv` - Generated data
-- `results/quality_metrics.txt` - Quality report
-- `results/privacy_metrics.json` - Privacy risk report
-
-**⚠️ Why Step 1b matters**: Fitting the preprocessor on a sample will learn incorrect min/max ranges and miss rare categorical values, degrading synthetic data quality. Step 1b runs once on the full dataset to ensure proper scaling.
-
-### 3. 🆕 Fully Synthetic Generation (Hour-0 Model)
-
-Generate patients without requiring real data as input:
+### 3. Public Reproducibility Workflow (Challenge 2012)
 
 ```bash
-# Step 0: Prepare and train Hour-0 model
-uv run python scripts/prepare_hour0.py       # Extract hour-0 states
-uv run python scripts/fit_hour0_preprocessor.py  # Fit preprocessor
-uv run python scripts/train_hour0.py       # Train IID model
+# Public benchmark pipeline: same command surface, different dataset preset
+uv run python scripts/run_sweep.py --dataset challenge2012
 
-# Then run normal workflow (steps 1, 1b, 2 from above)
-
-# Step 3: Generate fully synthetic patients (no real data needed!)
-uv run python scripts/generate.py --use-hour0 --n-patients 100 --n-timesteps 48
+# Public benchmark smoke run
+uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
 ```
 
 **Two-Stage Architecture:**
@@ -107,21 +72,52 @@ See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for complete detail
 ### 4. Advanced: Hyperparameter Sweep
 
 ```bash
-# Trains BOTH hour-0 and autoregressive models with each hyperparameter combination
-uv run python scripts/run_sweep.py
+# Full pipeline + sweep (MIMIC defaults)
+uv run python scripts/run_sweep.py --dataset mimic
+
+# Public benchmark pipeline + sweep (Challenge 2012)
+uv run python scripts/run_sweep.py --dataset challenge2012
+
+# Optional: clear generated data/preprocessors/cache/results before rerun
+uv run python scripts/run_sweep.py --dataset mimic --reset
 
 # Visualize results
-uv run python scripts/analyze_sweep.py
+uv run python scripts/common/analyze_sweep.py
+uv run python scripts/common/analyze_sweep.py --dataset challenge2012
 ```
 
-**🆕 Unified Training:**
-The sweep automatically trains **both models** with identical hyperparameters:
+**🆕 Unified Pipeline Command:**
+`scripts/run_sweep.py` is the single public entrypoint. It automatically runs
+prepare scripts, preprocessor fitting, and then the sweep.
+
+Configuration defaults are centralised in
+`src/lexisflow/config/datasets.py`:
+- `DatasetConfig`: dataset-specific paths and artifact locations
+- `SweepDefaults`: sweep grids and row/sample/privacy budgets
+- `SplitConfig`: patient-level split fractions and split seed
+- `sweep_profiles`: profile presets (`full`, `smoke`)
+
+CLI precedence is: explicit flag override > selected profile defaults > dataset defaults.
+
+The sweep still trains **both models** with identical hyperparameters:
 - Each `(nt, n_noise)` combination trains hour-0 IID + autoregressive models
 - Ensures fair comparison across hyperparameter settings
 - Mortality utility is evaluated with a patient-level sequence TSTR model over autoregressive trajectories
 - Each sweep cell runs TSTR three times with trajectory sampling seeds `42`, `11`, and `50`; reported key utility/quality/privacy metrics include mean, seed-level standard deviation, and 95% confidence-interval half-widths
 - Hour-0 models saved to `artifacts/sweep/hour0_nt{nt}_noise{n_noise}.pkl`
 - Select best configuration from sweep results and copy to `artifacts/hour0_forest_flow.pkl`
+
+### 5. Public Reproducibility Example (no MIMIC access required)
+
+MIMIC-III requires credentialed PhysioNet access. For reviewers without it,
+`scripts/challenge2012/` runs the full pipeline on the **PhysioNet Challenge
+2012** ICU benchmark (ODC-BY, open access) using the same column schema so
+all TSTR / quality / temporal / privacy metrics work unchanged. See
+[scripts/challenge2012/README.md](scripts/challenge2012/README.md).
+
+```bash
+uv run python scripts/run_sweep.py --dataset challenge2012
+```
 
 ## Documentation
 
@@ -132,6 +128,7 @@ The sweep automatically trains **both models** with identical hyperparameters:
 | [PROJECT_ARCHITECTURE.md](docs/architecture/PROJECT_ARCHITECTURE.md) | Comprehensive project overview & critical analysis |
 | [scripts/WORKFLOW.md](scripts/WORKFLOW.md) | Complete workflow guide & script usage |
 | [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) | Hyperparameter sweep details & TSTR |
+| [scripts/challenge2012/README.md](scripts/challenge2012/README.md) | Public reproducibility example (Challenge 2012) |
 | [report_latex/](report_latex/) | LaTeX thesis |
 
 ## Code Quality Improvements
@@ -202,6 +199,9 @@ lexisflow/
 │   │   ├── privacy_metrics.py   # DCR, membership inference
 │   │   ├── tstr_framework.py    # TSTR evaluation
 │   │   └── tests/               # Unit tests
+│   ├── config/                  # Dataset presets + sweep/split defaults
+│   │   ├── __init__.py
+│   │   └── datasets.py          # DatasetConfig, SweepDefaults, SplitConfig
 │   └── sweep/                   # Sweep orchestration helpers
 │       ├── training.py          # Generator factory + trainers
 │       ├── generation.py        # Autoregressive sampling
@@ -209,21 +209,15 @@ lexisflow/
 │       ├── data_prep.py         # Preprocessor + cache loading
 │       └── tests/               # Unit tests
 ├── scripts/                     # Workflow scripts
-│   ├── prepare_hour0.py              # Extract hour-0 states
-│   ├── fit_hour0_preprocessor.py     # Fit hour-0 preprocessor
-│   ├── train_hour0.py                # Train IID model
-│   ├── prepare_autoregressive.py     # Create autoregressive format
-│   ├── fit_autoregressive_preprocessor.py   # Fit preprocessor on full data
-│   ├── train_autoregressive.py       # Train autoregressive model
-│   ├── generate.py                   # Generate synthetic patients
-│   ├── run_sweep.py                  # Hyperparameter sweep
-│   └── analyze_sweep.py              # Visualize sweep results
+│   ├── run_sweep.py                  # Public orchestrator (--dataset, --profile, --reset)
+│   ├── mimic/                        # MIMIC internal pipeline scripts
+│   ├── challenge2012/                # Challenge 2012 internal pipeline scripts
+│   └── common/                       # Shared analysis utilities (e.g., analyze_sweep.py)
 ├── data/                        # Data files (gitignored)
 │   └── processed/               # Preprocessed CSVs
 ├── artifacts/                   # Trained model artifacts (gitignored)
 │   └── sweep/                   # Per-cell sweep models
 ├── results/                     # Generated outputs
-├── configs/                     # YAML configurations
 ├── report_latex/                # LaTeX thesis
 └── docs/                        # Documentation
 ```

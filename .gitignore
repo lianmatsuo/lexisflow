@@ -42,9 +42,6 @@ eda/*/results/
 *.parquet
 !src/lexisflow/models
 
-# Knowledge graph tool output
-graphify-out/
-
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb

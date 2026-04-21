@@ -10,6 +10,7 @@ and optional extrapolation.
 """
 
 import sys
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.optimize import curve_fit
+
+from lexisflow.config import DATASET_CONFIGS, get_dataset_config
 
 
 def load_results(results_path: Path) -> pd.DataFrame:
@@ -944,13 +947,49 @@ def print_summary(df: pd.DataFrame):
     print("\n" + "=" * 60)
 
 
+def _build_argparser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Visualize sweep CSV metrics as heatmaps and line charts."
+    )
+    parser.add_argument(
+        "--dataset",
+        default="mimic",
+        choices=sorted(DATASET_CONFIGS),
+        help="Dataset preset used for default paths (default: mimic).",
+    )
+    parser.add_argument(
+        "--results-path",
+        type=Path,
+        default=None,
+        help="Override sweep results CSV path.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Override output directory for generated plots.",
+    )
+    return parser
+
+
 def main():
+    args = _build_argparser().parse_args()
+    cfg = get_dataset_config(args.dataset)
+
     print("=" * 60)
     print("Sweep Results Visualization")
     print("=" * 60)
 
-    results_path = Path("results/sweep_results.csv")
-    output_dir = Path("results/sweep_plots")
+    results_path = args.results_path or cfg.results_csv
+    if args.output_dir is not None:
+        output_dir = args.output_dir
+    elif args.results_path is None and args.dataset == "mimic":
+        # Preserve the historical default output path for MIMIC.
+        output_dir = Path("results/sweep_plots")
+    else:
+        output_dir = results_path.parent / f"{results_path.stem}_plots"
+
+    print(f"Dataset preset: {args.dataset}")
 
     if not results_path.exists():
         print(f"\nError: {results_path} not found.")

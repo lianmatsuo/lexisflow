@@ -254,14 +254,11 @@ lexisflow/
 │       ├── model.py             # Logistic regression classifier
 │       ├── preprocessor.py      # TSTRPreprocessor (consistent encoding)
 │       └── __init__.py
-├── scripts/                     # Numbered workflow scripts
-│   ├── prepare_autoregressive.py    # Data cleaning & AR format
-│   ├── fit_autoregressive_preprocessor.py  # Fit on full data (CRITICAL)
-│   ├── train_autoregressive.py        # Train Forest-Flow
-│   ├── generate.py # Generate trajectories
-│   ├── 04_evaluate_quality.py   # Quality metrics
-│   ├── run_sweep.py             # Hyperparameter search
-│   └── analyze_sweep.py    # Visualization
+├── scripts/                     # Pipeline entrypoint + dataset subdirectories
+│   ├── run_sweep.py             # Single public command (dataset + reset flags)
+│   ├── mimic/                   # Internal MIMIC pipeline stages
+│   ├── challenge2012/           # Internal Challenge 2012 pipeline stages
+│   └── common/                  # Shared analysis utilities
 ├── configs/                     # YAML configurations
 │   ├── forest_flow_config.yaml  # Production hyperparameters
 │   └── mortality_classifier_config.yaml
@@ -599,9 +596,17 @@ class TSTRPreprocessor:
    - E.g., heart rate ∉ [0, 300], glucose ∉ [0, 1500]
    - Threshold: < 1% is excellent
 
-### 5. Hyperparameter Sweep (`run_sweep.py`)
+### 5. Hyperparameter Sweep (`scripts/run_sweep.py`)
 
-**Purpose**: Find optimal (nt, n_noise) configuration via systematic grid search.
+**Purpose**: One command orchestrates prepare → fit preprocessors → sweep, then
+finds optimal `(nt, n_noise)` via systematic grid search.
+
+**CLI**:
+```bash
+uv run python scripts/run_sweep.py --dataset mimic
+uv run python scripts/run_sweep.py --dataset challenge2012
+uv run python scripts/run_sweep.py --dataset mimic --reset
+```
 
 **Sweep Configuration**:
 ```python
@@ -619,7 +624,8 @@ NOISE_VALUES = [1, 3, 5, 7, 9, 11, 13, 15]      # 8 values
 6. Record results to CSV (crash-safe, resumable)
 7. Cleanup (free memory for next run)
 
-**Output**: `results/sweep_results.csv`
+**Output**: dataset-specific results CSV (`results/sweep_results.csv` for MIMIC,
+`results/challenge2012_sweep_results.csv` for Challenge 2012)
 ```csv
 nt,n_noise,train_time_sec,synth_roc_auc,real_roc_auc,avg_ks_stat,corr_frobenius,range_violation_pct
 1,1,45.2,0.623,0.768,0.529,8.43,41.2

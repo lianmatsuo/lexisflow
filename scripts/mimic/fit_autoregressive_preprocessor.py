@@ -9,13 +9,13 @@ The preprocessor is fit once on all data, saved, and reused during training.
 This allows training on subsamples while maintaining correct data ranges.
 
 Usage:
-    uv run python scripts/fit_autoregressive_preprocessor.py
+    uv run python scripts/mimic/fit_autoregressive_preprocessor.py
 
 Input:
     data/processed/autoregressive_data.csv
 
 Output:
-    models/preprocessor_full.pkl
+    artifacts/preprocessor_full.pkl
 """
 
 from pathlib import Path
@@ -40,7 +40,7 @@ def main():
     # Configuration
     input_path = "data/processed/autoregressive_data.csv"
 
-    # Save to models directory
+    # Save to artifacts directory
     preprocessor_output = "artifacts/preprocessor_full.pkl"
     column_split_output = "artifacts/column_split.txt"
 
@@ -189,7 +189,7 @@ def main():
         "int_cols": int_cols,
     }
 
-    # Save to models/ directory
+    # Save to artifacts/ directory
     print(f"\nSaving fitted preprocessor to {preprocessor_output}...")
     Path(preprocessor_output).parent.mkdir(parents=True, exist_ok=True)
 
@@ -220,9 +220,9 @@ def main():
     print("   • Training on subsamples maintains proper scaling!")
     print("\n" + "=" * 70)
     print("Next steps:")
-    print("  1. Run scripts/train_autoregressive.py to train Forest-Flow")
+    print("  1. Run scripts/mimic/train_autoregressive.py to train Forest-Flow")
     print("     (it will automatically use this pre-fitted preprocessor)")
-    print("  2. Run run_sweep.py for hyperparameter search")
+    print("  2. Run scripts/run_sweep.py --dataset mimic for hyperparameter search")
     print("     (it will use the same preprocessor)")
     print("=" * 70)
 

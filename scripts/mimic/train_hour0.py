@@ -8,14 +8,14 @@ The model is fully unconditional (no conditioning on history, since there is no 
 It learns P(demographics, vitals_t0) directly from the hour-0 data distribution.
 
 Usage:
-    uv run python scripts/train_hour0.py
+    uv run python scripts/mimic/train_hour0.py
 
 Input:
     data/processed/hour0_data.csv
-    models/hour0_preprocessor.pkl
+    artifacts/hour0_preprocessor.pkl
 
 Output:
-    models/hour0_forest_flow.pkl
+    artifacts/hour0_forest_flow.pkl
 """
 
 import sys
@@ -226,7 +226,9 @@ def main():
     print(f"   Training time: {elapsed:.1f}s")
     print(f"   Output: {model_output}")
     print("\n" + "=" * 70)
-    print("Next step: scripts/generate.py --use-hour0 for fully synthetic rollouts")
+    print(
+        "Next step: scripts/mimic/generate.py --use-hour0 for fully synthetic rollouts"
+    )
     print("=" * 70)
 
 

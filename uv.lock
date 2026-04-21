@@ -801,41 +801,6 @@ wheels = [
 ]
 
 [[package]]
-name = "graphifyy"
-version = "0.4.18"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "networkx", version = "3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "tree-sitter" },
-    { name = "tree-sitter-c" },
-    { name = "tree-sitter-c-sharp" },
-    { name = "tree-sitter-cpp" },
-    { name = "tree-sitter-elixir" },
-    { name = "tree-sitter-go" },
-    { name = "tree-sitter-java" },
-    { name = "tree-sitter-javascript" },
-    { name = "tree-sitter-julia" },
-    { name = "tree-sitter-kotlin" },
-    { name = "tree-sitter-lua" },
-    { name = "tree-sitter-objc" },
-    { name = "tree-sitter-php" },
-    { name = "tree-sitter-powershell" },
-    { name = "tree-sitter-python" },
-    { name = "tree-sitter-ruby" },
-    { name = "tree-sitter-rust" },
-    { name = "tree-sitter-scala" },
-    { name = "tree-sitter-swift" },
-    { name = "tree-sitter-typescript" },
-    { name = "tree-sitter-verilog" },
-    { name = "tree-sitter-zig" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0b/c3/208e867d620c2aad3cc09f1f2d25d38d1836d893723e0c72a4e2b1a7145d/graphifyy-0.4.18.tar.gz", hash = "sha256:e31650fdb6ea060100ca45706abbb63fdc849e307dc96afb8946f590196e154a", size = 284662, upload-time = "2026-04-16T06:24:35.685Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/b7/8a68538914764ad981296ec2ad74aadbb454ab11f0db59b3ae45c2af5e4f/graphifyy-0.4.18-py3-none-any.whl", hash = "sha256:6235bf5f5e9000c189e22ae678ffc0c635101f914d2f445db5d7c8dd7d5f67b0", size = 264598, upload-time = "2026-04-16T06:24:33.263Z" },
-]
-
-[[package]]
 name = "groovy"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2886,7 +2851,6 @@ dependencies = [
     { name = "duckdb" },
     { name = "dython" },
     { name = "gradio" },
-    { name = "graphifyy" },
     { name = "imbalanced-learn" },
     { name = "joblib" },
     { name = "matplotlib" },
@@ -2922,7 +2886,6 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.4.2" },
     { name = "dython", specifier = ">=0.7.11" },
     { name = "gradio", specifier = ">=6.13.0" },
-    { name = "graphifyy", specifier = ">=0.4.18" },
     { name = "imbalanced-learn", specifier = ">=0.11.0" },
     { name = "joblib", specifier = ">=1.3.0" },
     { name = "matplotlib", specifier = ">=3.7.0" },

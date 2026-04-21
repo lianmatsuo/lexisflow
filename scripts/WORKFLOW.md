@@ -1,90 +1,81 @@
 # Script Workflow Guide
 
-Scripts are grouped by verb: `prepare_*` (build CSVs), `fit_*` (fit preprocessors), `train_*` (train generators), `generate.py` (sample synthetic data), `run_*` (multi-cell experiments), `analyze_*` (read artifacts, emit plots/tables).
+The public pipeline command is now a single entrypoint:
+
+```bash
+uv run python scripts/run_sweep.py --dataset mimic
+```
+
+Use `--dataset challenge2012` for the public PhysioNet benchmark and `--reset`
+to clear generated data/preprocessors/cache/results before rerunning.
+Use `--profile smoke` for a faster, reduced-budget validation run.
+
+All other scripts in `scripts/mimic/`, `scripts/challenge2012/`, and
+`scripts/common/` are internal pipeline steps called by `scripts/run_sweep.py`.
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
-| `prepare_autoregressive.py` | Build autoregressive training CSV with lag-1 features from the flat MIMIC table. |
-| `fit_autoregressive_preprocessor.py` | Fit `TabularPreprocessor` on the full autoregressive CSV (captures rare categories and true min/max). |
-| `train_autoregressive.py` | Train HS3F or Forest-Flow on the autoregressive matrix. |
-| `prepare_hour0.py` | Extract hour-0 rows (demographics + initial vitals). |
-| `fit_hour0_preprocessor.py` | Fit the hour-0 preprocessor. |
-| `train_hour0.py` | Train the IID hour-0 generator. |
-| `generate.py` | Sample synthetic trajectories (`--use-hour0` for fully synthetic). |
-| `run_sweep.py` | Hyperparameter sweep over `(nt, n_noise)` with matched seeds, TSTR + quality + privacy. |
-| `run_backbone_comparison.py` | Matched HS3F vs Forest-Flow vs CTGAN at a single cell. |
-| `analyze_sweep.py` | Heatmaps, line plots, and extrapolation fits from `sweep_results.csv`. |
-| `analyze_column_coverage.py` | Streaming non-null / distribution stats per column. |
-| `analyze_column_removal.py` | Build removal recommendations from coverage stats. |
+| `run_sweep.py` | Single public command. Orchestrates prepare + fit + sweep for `mimic` or `challenge2012`. |
+| `mimic/*.py` | MIMIC-specific internal pipeline scripts called by `run_sweep.py --dataset mimic`. |
+| `challenge2012/*.py` | Challenge 2012 internal scripts called by `run_sweep.py --dataset challenge2012`. |
+| `common/analyze_sweep.py` | Heatmaps, line plots, and extrapolation fits from sweep results CSVs. |
+| `common/analyze_column_coverage.py` | Streaming non-null / distribution stats per column. |
+| `common/analyze_column_removal.py` | Build removal recommendations from coverage stats. |
 
 ## End-to-end pipeline
 
-### Autoregressive-only (real initial conditions)
+### Sweep (single command)
 
 ```bash
-uv run python scripts/prepare_autoregressive.py
-uv run python scripts/fit_autoregressive_preprocessor.py   # one-off, fits on FULL dataset
-uv run python scripts/train_autoregressive.py              # default backbone: hs3f
-uv run python scripts/generate.py
+uv run python scripts/run_sweep.py --dataset mimic
+uv run python scripts/run_sweep.py --dataset challenge2012
+uv run python scripts/run_sweep.py --dataset mimic --profile smoke
+uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
+uv run python scripts/run_sweep.py --dataset mimic --reset
+
+uv run python scripts/common/analyze_sweep.py
+uv run python scripts/common/analyze_sweep.py --dataset challenge2012
+uv run python scripts/common/analyze_sweep.py --results-path results/challenge2012_sweep_results.csv
 ```
 
-### Fully synthetic (hour-0 + autoregressive)
-
-```bash
-# Hour-0 branch
-uv run python scripts/prepare_hour0.py
-uv run python scripts/fit_hour0_preprocessor.py
-uv run python scripts/train_hour0.py
-
-# Autoregressive branch (reuses preprocessor from above)
-uv run python scripts/prepare_autoregressive.py
-uv run python scripts/fit_autoregressive_preprocessor.py
-uv run python scripts/train_autoregressive.py
-
-# Stitch together
-uv run python scripts/generate.py --use-hour0 --n-patients 100 --n-timesteps 48
-```
-
-### Sweep
-
-```bash
-uv run python scripts/run_sweep.py \
-    --train-rows 50000 \
-    --nt-values 1,5,10,20 \
-    --noise-values 1,3,5
-
-uv run python scripts/analyze_sweep.py
-```
-
-The sweep is resumable: existing rows in `results/sweep_results.csv` are skipped on rerun. Each cell runs TSTR three times with trajectory seeds `{42, 11, 50}` and reports mean / seed-level stdev / 95% CI half-width.
+The sweep is resumable: existing rows in the dataset-specific results CSV are
+skipped on rerun. Each cell runs TSTR three times with trajectory seeds
+`{42, 11, 50}` and reports mean / seed-level stdev / 95% CI half-width.
 
 ## Artifact flow
 
 ```
-data/processed/flat_table.csv
-    → prepare_autoregressive.py → data/processed/autoregressive_data.csv
-    → fit_autoregressive_preprocessor.py → artifacts/preprocessor_full.pkl
-    → train_autoregressive.py → artifacts/forest_flow_model.pkl, artifacts/preprocessor.pkl
-    → generate.py → results/synthetic_patients.csv
-
-data/processed/flat_table.csv
-    → prepare_hour0.py → data/processed/hour0_data.csv
-    → fit_hour0_preprocessor.py → artifacts/hour0_preprocessor.pkl
-    → train_hour0.py → artifacts/hour0_forest_flow.pkl
+scripts/run_sweep.py --dataset <dataset>
+    → scripts/<dataset>/prepare_hour0.py
+    → scripts/<dataset>/prepare_autoregressive.py
+    → scripts/<dataset>/fit_hour0_preprocessor.py
+    → scripts/<dataset>/fit_autoregressive_preprocessor.py
+    → scripts/<dataset>/run_sweep.py
+    → results/<dataset-specific>_sweep_results.csv
 ```
 
-Quality, privacy, and TSTR evaluation live in `src/lexisflow/evaluation/` and are invoked by `run_sweep.py` per cell; call the helpers directly from a notebook or REPL for ad-hoc inspection of a single run.
+Quality, privacy, and TSTR evaluation live in `src/lexisflow/evaluation/` and
+are invoked by the dataset sweep drivers.
 
-## Common overrides
+## Internal tuning
+
+Default paths and sweep/split budgets live in
+`src/lexisflow/config/datasets.py`:
+
+- `DatasetConfig`: dataset-specific script/data/artifact/result paths
+- `SweepDefaults`: `nt` grid, `n_noise` grid, row/sample budgets, privacy cap
+- `SplitConfig`: patient-level test/holdout split fractions and shuffle seed
+- `sweep_profiles`: `full` and `smoke` presets per dataset
+
+Fine-grained sweep overrides (for `nt`, `n_noise`, row budgets, parallelism,
+and privacy toggles) are still available directly on the dataset-specific sweep
+drivers:
 
 ```bash
-# Quick-iteration training
-uv run python scripts/train_autoregressive.py --max-rows 5000 --nt 10 --n-noise 10 --n-jobs 8
-
-# Production config
-uv run python scripts/train_autoregressive.py --nt 50 --n-noise 100 --max-rows 0
+uv run python scripts/mimic/run_sweep.py --profile full --nt-values 1,3,5 --noise-values 1,3,5
+uv run python scripts/challenge2012/run_sweep.py --profile smoke --train-rows 30000 --synth-samples 15000
 ```
 
-Key knobs: `nt` (flow time levels), `n_noise` (noise multipliers per row during training — the dominant cost driver), `max-rows` (0 = all rows), `n-jobs` (XGBoost parallelism).
+CLI precedence is: explicit flags > profile defaults > dataset defaults.

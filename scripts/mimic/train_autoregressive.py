@@ -2,11 +2,11 @@
 """Train the autoregressive generative model (HS3F or Forest-Flow) on preprocessed data.
 
 Usage:
-    uv run python scripts/train_autoregressive.py
+    uv run python scripts/mimic/train_autoregressive.py
 
 Output:
-    models/forest_flow_model.pkl
-    models/preprocessor.pkl
+    artifacts/forest_flow_model.pkl
+    artifacts/preprocessor.pkl
 """
 
 import sys
@@ -91,7 +91,7 @@ def main():
     # Check if input exists
     if not Path(input_path).exists():
         print(f"\nError: {input_path} not found!")
-        print("Run scripts/prepare_autoregressive.py first to prepare data.")
+        print("Run scripts/mimic/prepare_autoregressive.py first to prepare data.")
         sys.exit(1)
 
     # Load autoregressive data
@@ -138,7 +138,7 @@ def main():
         print(f"   Looking for: {preprocessor_full_path}")
         print("   Fitting preprocessor on training sample instead (NOT RECOMMENDED)")
         print(
-            "   → Run scripts/fit_autoregressive_preprocessor.py first to fit on full data"
+            "   → Run scripts/mimic/fit_autoregressive_preprocessor.py first to fit on full data"
         )
         print()
 
@@ -275,7 +275,7 @@ def main():
     print(f"   Model: {model_output}")
     print(f"   Preprocessor: {preprocessor_output}")
     print("\n" + "=" * 70)
-    print("Next step: Run scripts/generate.py to generate data")
+    print("Next step: Run scripts/mimic/generate.py to generate data")
     print("=" * 70)
 
 

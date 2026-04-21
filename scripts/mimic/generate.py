@@ -15,10 +15,10 @@ It supports two modes:
 
 Usage:
     # Fully synthetic (with hour-0 model)
-    uv run python scripts/generate.py --use-hour0
+    uv run python scripts/mimic/generate.py --use-hour0
 
     # Using real initial conditions (original)
-    uv run python scripts/generate.py
+    uv run python scripts/mimic/generate.py
 
 Output:
     results/synthetic_patients.csv
@@ -159,12 +159,12 @@ def main():
     # Check inputs exist
     if not Path(model_path).exists():
         print(f"\nError: {model_path} not found!")
-        print("Run scripts/train_autoregressive.py first to train a model.")
+        print("Run scripts/mimic/train_autoregressive.py first to train a model.")
         sys.exit(1)
 
     if not Path(preprocessor_path).exists():
         print(f"\nError: {preprocessor_path} not found!")
-        print("Run scripts/train_autoregressive.py first to train a model.")
+        print("Run scripts/mimic/train_autoregressive.py first to train a model.")
         sys.exit(1)
 
     # Load autoregressive model and preprocessor
@@ -192,7 +192,7 @@ def main():
         # Check hour-0 model exists
         if not Path(hour0_model_path).exists():
             print(f"\nError: {hour0_model_path} not found!")
-            print("Run scripts/train_hour0.py first to train hour-0 model.")
+            print("Run scripts/mimic/train_hour0.py first to train hour-0 model.")
             print("Or omit '--use-hour0' to use real initial conditions.")
             sys.exit(1)
 

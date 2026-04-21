@@ -8,7 +8,7 @@ three backbones, packages the delta/winner comparison, and writes the compact
 thesis artefacts.
 
 Example:
-    uv run python scripts/run_backbone_comparison.py \\
+    uv run python scripts/mimic/run_backbone_comparison.py \\
         --nt 5 --n-noise 5 --train-rows 50000 --synth-samples 50000
 """
 

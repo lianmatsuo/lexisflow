@@ -11,7 +11,7 @@ Steps:
 4. Create autoregressive features with lag=1
 
 Usage:
-    uv run python scripts/prepare_autoregressive.py
+    uv run python scripts/mimic/prepare_autoregressive.py
 
 Output:
     data/processed/autoregressive_data.csv
@@ -26,6 +26,7 @@ import pandas as pd
 import duckdb
 from tqdm import tqdm
 
+from lexisflow.config import get_dataset_config
 from lexisflow.data import (
     columns_to_drop_default_feature_pruning,
     DEFAULT_DATETIME_COLUMNS,
@@ -34,6 +35,9 @@ from lexisflow.data import (
     flatten_column_names,
     normalize_column_name_list,
 )
+
+
+CFG = get_dataset_config("mimic")
 
 
 def identify_missing_columns_duckdb(csv_path: str) -> list[str]:
@@ -227,11 +231,11 @@ def main():
     # computed against the test/holdout CSVs cannot leak training rows.
     print("\nSTEP 6: Patient-level train/test/holdout split (80/10/10)...")
     subjects = df_ar["subject_id"].unique()
-    rng_split = np.random.default_rng(0)
+    rng_split = np.random.default_rng(CFG.split.shuffle_seed)
     rng_split.shuffle(subjects)
     n_subjects = len(subjects)
-    n_test = max(1, int(0.10 * n_subjects))
-    n_holdout = max(1, int(0.10 * n_subjects))
+    n_test = max(1, int(CFG.split.test_fraction * n_subjects))
+    n_holdout = max(1, int(CFG.split.holdout_fraction * n_subjects))
     test_subjects = set(subjects[:n_test].tolist())
     holdout_subjects = set(subjects[n_test : n_test + n_holdout].tolist())
     train_subjects = set(subjects[n_test + n_holdout :].tolist())
@@ -248,8 +252,8 @@ def main():
     )
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    real_test_path = "data/processed/real_test.csv"
-    real_holdout_path = "data/processed/real_holdout.csv"
+    real_test_path = str(CFG.real_test)
+    real_holdout_path = str(CFG.real_holdout)
 
     start_time = time.time()
     df_train.to_csv(output_path, index=False)
@@ -286,7 +290,7 @@ def main():
     )
     print("\n" + "=" * 70)
     print(
-        "Next step: Run scripts/fit_autoregressive_preprocessor.py to fit preprocessor on full data"
+        "Next step: Run scripts/mimic/fit_autoregressive_preprocessor.py to fit preprocessor on full data"
     )
     print("=" * 70)
 

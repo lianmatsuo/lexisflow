@@ -18,16 +18,20 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from lexisflow.config import get_dataset_config
+
 from .cache import build_cache_signature, load_transformed_cache, save_transformed_cache
 
 
-DEFAULT_HOUR0_DATA_PATH = Path("data/processed/hour0_data.csv")
-DEFAULT_HOUR0_PREPROCESSOR_PATH = Path("artifacts/hour0_preprocessor.pkl")
-DEFAULT_AR_PREPROCESSOR_PATH = Path("artifacts/preprocessor_full.pkl")
-DEFAULT_AR_CSV_PATH = Path("data/processed/autoregressive_data.csv")
-DEFAULT_REAL_TEST_CSV_PATH = Path("data/processed/real_test.csv")
-DEFAULT_REAL_HOLDOUT_CSV_PATH = Path("data/processed/real_holdout.csv")
-DEFAULT_TRANSFORMED_CACHE_DIR = Path("artifacts/sweep_cache/transformed_autoregressive")
+DEFAULT_DATASET = "mimic"
+_DEFAULT_CFG = get_dataset_config(DEFAULT_DATASET)
+DEFAULT_HOUR0_DATA_PATH = _DEFAULT_CFG.hour0_data
+DEFAULT_HOUR0_PREPROCESSOR_PATH = _DEFAULT_CFG.hour0_preprocessor
+DEFAULT_AR_PREPROCESSOR_PATH = _DEFAULT_CFG.autoregressive_preprocessor
+DEFAULT_AR_CSV_PATH = _DEFAULT_CFG.autoregressive_data
+DEFAULT_REAL_TEST_CSV_PATH = _DEFAULT_CFG.real_test
+DEFAULT_REAL_HOLDOUT_CSV_PATH = _DEFAULT_CFG.real_holdout
+DEFAULT_TRANSFORMED_CACHE_DIR = _DEFAULT_CFG.transformed_cache_dir
 DEFAULT_QUALITY_SAMPLE_SIZE = 50000
 
 
@@ -51,29 +55,34 @@ class AutoregressiveInputs:
     real_quality_df: pd.DataFrame
     real_holdout_df: pd.DataFrame | None
     n_rows: int
-    real_test_path: str = str(DEFAULT_REAL_TEST_CSV_PATH)
+    real_test_path: str = ""
     all_cols: list[str] = field(default_factory=list)
 
 
 def load_hour0_inputs(
     train_rows: int,
     *,
-    data_path: Path = DEFAULT_HOUR0_DATA_PATH,
-    preprocessor_path: Path = DEFAULT_HOUR0_PREPROCESSOR_PATH,
+    dataset: str = DEFAULT_DATASET,
+    data_path: Path | None = None,
+    preprocessor_path: Path | None = None,
     random_state: int = 42,
 ) -> Hour0Inputs:
     """Load the hour-0 preprocessor and subsample the training matrix."""
-    if not data_path.exists():
-        print(f"\nError: {data_path} not found!")
-        print("Run: uv run python scripts/prepare_hour0.py")
+    cfg = get_dataset_config(dataset)
+    resolved_data_path = data_path or cfg.hour0_data
+    resolved_preprocessor_path = preprocessor_path or cfg.hour0_preprocessor
+
+    if not resolved_data_path.exists():
+        print(f"\nError: {resolved_data_path} not found!")
+        print(f"Run: uv run python scripts/run_sweep.py --dataset {dataset}")
         sys.exit(1)
-    if not preprocessor_path.exists():
-        print(f"\nError: {preprocessor_path} not found!")
-        print("Run: uv run python scripts/fit_hour0_preprocessor.py")
+    if not resolved_preprocessor_path.exists():
+        print(f"\nError: {resolved_preprocessor_path} not found!")
+        print(f"Run: uv run python scripts/run_sweep.py --dataset {dataset}")
         sys.exit(1)
 
-    print(f"\nLoading hour-0 preprocessor from {preprocessor_path}...")
-    with open(preprocessor_path, "rb") as f:
+    print(f"\nLoading hour-0 preprocessor from {resolved_preprocessor_path}...")
+    with open(resolved_preprocessor_path, "rb") as f:
         payload = pickle.load(f)
     preprocessor = payload["preprocessor"]
     all_cols = payload["all_cols"]
@@ -82,8 +91,8 @@ def load_hour0_inputs(
         f"{preprocessor.n_features} encoded"
     )
 
-    print(f"\nLoading hour-0 data from {data_path}...")
-    df_hour0 = pd.read_csv(data_path, low_memory=False)
+    print(f"\nLoading hour-0 data from {resolved_data_path}...")
+    df_hour0 = pd.read_csv(resolved_data_path, low_memory=False)
     print(f"  ✓ Loaded: {df_hour0.shape[0]:,} rows × {df_hour0.shape[1]} columns")
 
     X_full = preprocessor.transform(df_hour0[all_cols])
@@ -103,7 +112,7 @@ def load_hour0_inputs(
     return Hour0Inputs(
         X_hour0=X_hour0,
         preprocessor=preprocessor,
-        preprocessor_path=str(preprocessor_path),
+        preprocessor_path=str(resolved_preprocessor_path),
         all_cols=all_cols,
         feature_types=feature_types,
     )
@@ -112,23 +121,31 @@ def load_hour0_inputs(
 def load_autoregressive_inputs(
     train_rows: int,
     *,
+    dataset: str = DEFAULT_DATASET,
     refresh_cache: bool = False,
-    preprocessor_path: Path = DEFAULT_AR_PREPROCESSOR_PATH,
-    csv_path: Path = DEFAULT_AR_CSV_PATH,
-    real_test_csv_path: Path = DEFAULT_REAL_TEST_CSV_PATH,
-    real_holdout_csv_path: Path = DEFAULT_REAL_HOLDOUT_CSV_PATH,
-    transformed_cache_dir: Path = DEFAULT_TRANSFORMED_CACHE_DIR,
+    preprocessor_path: Path | None = None,
+    csv_path: Path | None = None,
+    real_test_csv_path: Path | None = None,
+    real_holdout_csv_path: Path | None = None,
+    transformed_cache_dir: Path | None = None,
     quality_sample_size: int = DEFAULT_QUALITY_SAMPLE_SIZE,
     random_state: int = 42,
     show_progress: bool = True,
 ) -> AutoregressiveInputs:
     """Load preprocessor, transform autoregressive dataset, and subsample rows."""
-    if not preprocessor_path.exists():
-        print(f"\nError: {preprocessor_path} not found!")
-        print("▶ Run: uv run python scripts/fit_autoregressive_preprocessor.py")
+    cfg = get_dataset_config(dataset)
+    resolved_preprocessor_path = preprocessor_path or cfg.autoregressive_preprocessor
+    resolved_csv_path = csv_path or cfg.autoregressive_data
+    resolved_real_test_csv_path = real_test_csv_path or cfg.real_test
+    resolved_real_holdout_csv_path = real_holdout_csv_path or cfg.real_holdout
+    resolved_transformed_cache_dir = transformed_cache_dir or cfg.transformed_cache_dir
+
+    if not resolved_preprocessor_path.exists():
+        print(f"\nError: {resolved_preprocessor_path} not found!")
+        print(f"▶ Run: uv run python scripts/run_sweep.py --dataset {dataset}")
         sys.exit(1)
 
-    with open(preprocessor_path, "rb") as f:
+    with open(resolved_preprocessor_path, "rb") as f:
         payload = pickle.load(f)
     preprocessor = payload["preprocessor"]
     target_cols = payload["target_cols"]
@@ -156,40 +173,40 @@ def load_autoregressive_inputs(
             "using index-based target/condition split"
         )
 
-    if not csv_path.exists():
-        print(f"Error: {csv_path} not found!")
-        print("Run scripts/prepare_autoregressive.py first.")
+    if not resolved_csv_path.exists():
+        print(f"Error: {resolved_csv_path} not found!")
+        print(f"Run scripts/run_sweep.py --dataset {dataset} first.")
         sys.exit(1)
 
     cache_sig = build_cache_signature(
-        csv_path,
+        resolved_csv_path,
         all_cols,
         n_target,
         target_indices,
         condition_indices,
-        preprocessor_path=preprocessor_path,
+        preprocessor_path=resolved_preprocessor_path,
     )
     cached = (
         None
         if refresh_cache
-        else load_transformed_cache(transformed_cache_dir, cache_sig)
+        else load_transformed_cache(resolved_transformed_cache_dir, cache_sig)
     )
 
     if cached is not None:
         X_target_full, X_condition_full, real_quality_df, n_rows = cached
-        print(f"\nLoaded transformed cache from {transformed_cache_dir}")
+        print(f"\nLoaded transformed cache from {resolved_transformed_cache_dir}")
         print(f"  Cached arrays: {X_target_full.shape}, {X_condition_full.shape}")
         print(f"  Cached quality sample: {real_quality_df.shape}")
     else:
         X_target_full, X_condition_full, real_quality_df, n_rows = (
             _rebuild_transformed_cache(
-                csv_path=csv_path,
-                real_test_csv_path=real_test_csv_path,
+                csv_path=resolved_csv_path,
+                real_test_csv_path=resolved_real_test_csv_path,
                 preprocessor=preprocessor,
                 all_cols=all_cols,
                 target_indices=target_indices,
                 condition_indices=condition_indices,
-                cache_dir=transformed_cache_dir,
+                cache_dir=resolved_transformed_cache_dir,
                 cache_sig=cache_sig,
                 quality_sample_size=quality_sample_size,
                 show_progress=show_progress,
@@ -199,19 +216,19 @@ def load_autoregressive_inputs(
     # Load privacy holdout from disk — never falls through the transformed cache
     # because it is not derived from the training matrix.
     real_holdout_df: pd.DataFrame | None = None
-    if real_holdout_csv_path.exists():
-        real_holdout_raw = pd.read_csv(real_holdout_csv_path, low_memory=False)
+    if resolved_real_holdout_csv_path.exists():
+        real_holdout_raw = pd.read_csv(resolved_real_holdout_csv_path, low_memory=False)
         avail_cols = [c for c in all_cols if c in real_holdout_raw.columns]
         real_holdout_df = real_holdout_raw[avail_cols].reset_index(drop=True)
         print(
-            f"\nLoaded privacy holdout from {real_holdout_csv_path}: {real_holdout_df.shape}"
+            f"\nLoaded privacy holdout from {resolved_real_holdout_csv_path}: {real_holdout_df.shape}"
         )
     else:
         print(
-            f"\n  Warning: {real_holdout_csv_path} not found. "
+            f"\n  Warning: {resolved_real_holdout_csv_path} not found. "
             "Privacy metrics will use an internal split of the quality sample "
             "(potentially overlapping with training data). "
-            "Re-run scripts/prepare_autoregressive.py to generate a true holdout."
+            f"Re-run scripts/run_sweep.py --dataset {dataset} to generate a true holdout."
         )
 
     print(f"\nSubsampling {train_rows:,} / {n_rows:,} rows for training...")
@@ -228,13 +245,15 @@ def load_autoregressive_inputs(
     del X_target_full, X_condition_full
 
     real_test_path = (
-        str(real_test_csv_path) if real_test_csv_path.exists() else str(csv_path)
+        str(resolved_real_test_csv_path)
+        if resolved_real_test_csv_path.exists()
+        else str(resolved_csv_path)
     )
-    if not real_test_csv_path.exists():
+    if not resolved_real_test_csv_path.exists():
         print(
-            f"\n  Warning: {real_test_csv_path} not found. "
+            f"\n  Warning: {resolved_real_test_csv_path} not found. "
             "TSTR will read from the training CSV — results will be optimistic. "
-            "Re-run scripts/prepare_autoregressive.py to generate a disjoint test split."
+            f"Re-run scripts/run_sweep.py --dataset {dataset} to generate a disjoint test split."
         )
 
     return AutoregressiveInputs(
