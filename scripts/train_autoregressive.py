@@ -16,8 +16,8 @@ import argparse
 
 import pandas as pd
 
-from synth_gen.data import TabularPreprocessor, split_static_dynamic
-from synth_gen.models import ForestFlow, HS3F
+from lexisflow.data import TabularPreprocessor, split_static_dynamic
+from lexisflow.models import ForestFlow, HS3F
 
 
 def main():

@@ -105,7 +105,7 @@ hours_in, hr, bp, age, gender, hr_lag1, bp_lag1
 ### Automatic Detection
 
 ```python
-from synth_gen.data.autoregressive import split_static_dynamic
+from lexisflow.data.autoregressive import split_static_dynamic
 
 df = pd.read_csv("data/processed/flat_table.csv")
 static_cols, dynamic_cols = split_static_dynamic(df)

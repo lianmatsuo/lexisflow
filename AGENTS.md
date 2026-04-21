@@ -11,7 +11,7 @@
 
 ## Learned Workspace Facts
 
-- `synth-gen` is a KCL dissertation codebase for synthetic tabular ICU trajectories: primary models include ForestFlow and HS3F, with shared preprocessing and driver scripts under `scripts/` and evaluation logic under `src/synth_gen/evaluation/` (utility, trajectory, TSTR-style, and privacy-related metrics).
+- `lexisflow` is a KCL dissertation codebase for synthetic tabular ICU trajectories: primary models include ForestFlow and HS3F, with shared preprocessing and driver scripts under `scripts/` and evaluation logic under `src/lexisflow/evaluation/` (utility, trajectory, TSTR-style, and privacy-related metrics).
 - External baseline comparison for the thesis is oriented around CTGAN via SDV, trained and scored on the same processed data and metric stack as the in-repo models.
 - The LaTeX report draft used for submission-style writing lives under `report_latex/`, alongside thesis-oriented material under `docs/Chapters/`.
-- Python unit tests are co-located with their packages under `src/synth_gen/*/tests/` (for example `src/synth_gen/data/tests`, `src/synth_gen/evaluation/tests`, `src/synth_gen/models/tests`).
+- Python unit tests are co-located with their packages under `src/lexisflow/*/tests/` (for example `src/lexisflow/data/tests`, `src/lexisflow/evaluation/tests`, `src/lexisflow/models/tests`).

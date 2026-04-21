@@ -125,12 +125,12 @@ PATIENTS (subject_id) ──┐
                         └──> (other patient tables)
 ```
 
-## Usage in Synth-Gen
+## Usage in LexisFlow
 
 ### Identifying Static vs Dynamic
 
 ```python
-from synth_gen.models.utils import load_static_columns, split_static_dynamic
+from lexisflow.models.utils import load_static_columns, split_static_dynamic
 
 # Load all static columns
 static_cols = load_static_columns()  # Returns 28 columns

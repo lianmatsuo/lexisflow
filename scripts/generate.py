@@ -31,7 +31,7 @@ import argparse
 
 import pandas as pd
 
-from synth_gen.models import sample_trajectory
+from lexisflow.models import sample_trajectory
 
 
 def load_model_artifact(path: str):
@@ -279,7 +279,7 @@ def main():
     print(f"   Output: {output_path}")
     print(f"   Shape: {synth_df.shape}")
     print("\n" + "=" * 70)
-    print("Next step: evaluate synthetic data quality (see src/synth_gen/evaluation)")
+    print("Next step: evaluate synthetic data quality (see src/lexisflow/evaluation)")
     print("=" * 70)
 
 

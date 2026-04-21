@@ -75,7 +75,7 @@ data/processed/flat_table.csv
     → train_hour0.py → artifacts/hour0_forest_flow.pkl
 ```
 
-Quality, privacy, and TSTR evaluation live in `src/synth_gen/evaluation/` and are invoked by `run_sweep.py` per cell; call the helpers directly from a notebook or REPL for ad-hoc inspection of a single run.
+Quality, privacy, and TSTR evaluation live in `src/lexisflow/evaluation/` and are invoked by `run_sweep.py` per cell; call the helpers directly from a notebook or REPL for ad-hoc inspection of a single run.
 
 ## Common overrides
 

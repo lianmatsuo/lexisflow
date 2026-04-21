@@ -8,7 +8,7 @@ autoregressive Forest-Flow model.
 Steps:
 1. Flatten column names and drop cached 100%-missing columns
 2. Drop datetime columns (shared list with autoregressive prep)
-3. Apply shared feature pruning policy from synth_gen.data
+3. Apply shared feature pruning policy from lexisflow.data
 4. Filter to hours_in == 0 (or first available hour per patient)
 5. Select static + hour-0 vital columns
 6. Drop ID columns from modeling features (subject_id, hadm_id, icustay_id kept in CSV for training filters)
@@ -32,7 +32,7 @@ import argparse
 import pandas as pd
 from tqdm import tqdm
 
-from synth_gen.data import (
+from lexisflow.data import (
     columns_to_drop_default_feature_pruning,
     DEFAULT_DATETIME_COLUMNS,
     flatten_column_names,

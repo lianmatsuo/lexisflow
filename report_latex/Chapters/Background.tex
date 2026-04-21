@@ -1,95 +1,45 @@
-\chapter{Background}
+\chapter{Background and Related Work}
+\label{ch:background}
 
 \section{Motivation}
 \subsection{Problem with Current Approaches}
-Synthetic tabular data generation is motivated by three core pressures: privacy, data scarcity, and the need for high-fidelity statistical structure in domains such as healthcare where data is high-dimensional, mixed-type, and heavily constrained. Benchmarking studies and scoping reviews of synthetic EHR generation consistently demonstrate that tabular data poses a uniquely difficult challenge: it contains heterogeneous feature types, nonlinear dependencies, rare-event structure, and logical or physiological rules that must be respected to avoid producing implausible records \cite{yan2022benchmarking,kaabachi2025scoping}. Models must therefore capture both the statistical distribution and the structural constraints of the data.
+Synthetic tabular data generation in healthcare is constrained by three requirements that must be satisfied simultaneously: useful downstream signal, acceptable disclosure risk, and record-level realism. Reviews of synthetic EHR studies show that most methods do not satisfy all three at once \cite{yan2022benchmarking,kaabachi2025scoping}. This project focuses on ICU trajectories, where mixed feature types, sparse events, and temporal dependence make that trade-off harder.
 
-\subsubsection{Limitations of Current Generative Approaches}
+\subsubsection{Method families and limitations}
 
-Across the literature, traditional generative paradigms struggle with at least one of the following:
-\begin{enumerate}
-    \item \textbf{GAN-based models} (e.g., CTAB-GAN \cite{zhao2021ctabgan}, medGAN \cite{choi2017medgan}):
-    GANs excel at image-like continuous domains but degrade in tabular settings because mixed categorical--numerical variables break the smoothness assumptions of adversarial training. They are also prone to mode collapse, leading to missing rare patterns---critical in healthcare datasets. Benchmarking studies show GAN-based EHR models consistently failing on minority disease codes, rare laboratory patterns, and sparse temporal events \cite{yan2022benchmarking}.
-
-    \item \textbf{Diffusion models} (e.g., TabDDPM \cite{kotelnikov2023tabddpm}, TabDiff \cite{shi2025tabdiff}):
-    Diffusion improves training stability but still struggles to enforce structured constraints (e.g., mutually exclusive diagnosis codes, age--procedure consistency). Jolicoeur-Martineau et al.\ \cite{jolicoeur2023forest} argue that naïvely diffusing mixed-type features introduces discontinuities and destroys interpretability unless additional structure is imposed.
-
-    \item \textbf{LLMs as generators}:
-    While LLMs are powerful generative models \cite{borisov2023great,wang2022promptehr}, they are not naturally statistical samplers. Without ground-truth marginals or explicit constraints, they can hallucinate records that appear plausible but fail distributional tests, break medical validity rules, or exhibit memorisation risk---a risk noted in evaluations of transformer-based EHR generation \cite{yan2022benchmarking}.
-\end{enumerate}
+Prior work motivates this project through practical limits rather than through a single ``best'' model class:
+\begin{itemize}\tightlist
+    \item \textbf{GAN-based tabular models} can preserve some marginals but often collapse minority patterns and are unstable under heavy imbalance \cite{yan2022benchmarking,xu2019ctgan}.
+    \item \textbf{Neural diffusion/score models} are often stronger on average benchmarks, but they usually require heavier compute and careful mixed-type handling to avoid categorical artefacts \cite{kotelnikov2023tabddpm,shi2025tabdiff}.
+    \item \textbf{Transformer/LLM-style generators} can be flexible but do not inherently enforce clinical constraints or provide direct privacy assurance \cite{borisov2023great,wang2022promptehr}.
+\end{itemize}
+The design choice in this dissertation is therefore not ``trees are universally superior.'' It is that tree-based flow matching is a credible candidate when CPU efficiency, mixed-type handling, and reproducible evaluation are explicit priorities.
 
 \subsection{Why Trees?}
+Tree-based methods were selected for this project because they align with the evaluation priorities in Chapter~7: mixed-type generation, temporal conditioning on lagged covariates, CPU-only training, and explicit privacy diagnostics.
 
-The literature converges on a key theme: tabular data has structure that trees capture naturally, while neural generative models do not. This is the central motivation behind the ForestFlow family of methods \cite{jolicoeur2023forest,akazan2024hs3f} and several hybrid systems that use gradient-boosted trees as the generative backbone.
+Three points are relevant. First, boosted trees are effective conditional estimators on heterogeneous tabular features and remain practical on CPU hardware \cite{chen2016xgboost}. Second, ForestFlow shows that tree models can parameterise flow-matching dynamics without a neural backbone \cite{jolicoeur2023forest}. Third, HS3F separates continuous and categorical outputs through feature-wise generation \cite{akazan2024hs3f}, which directly targets one known weakness of all-continuous transport on mixed data.
 
-\begin{enumerate}
-    \item \textbf{Trees partition the space into meaningful, homogeneous regions.}
-    Tree ensembles (GBTs, Random Forests, XGBoost) split data recursively along informative feature thresholds. This has two consequences:
-    \begin{enumerate}
-        \item \emph{Locality}: each leaf corresponds to a region where data is homogeneous with respect to key interactions.
-        \item \emph{Conditional modelling}: within a leaf, modelling the distribution is dramatically easier---categorical frequencies and numerical distributions become far more structured.
-    \end{enumerate}
-    Jolicoeur-Martineau et al.\ \cite{jolicoeur2023forest} exploit this by training boosted trees whose leaves encode low-dimensional conditional distributions used during flow or diffusion sampling. EHR data is multiscale and multimodal, with many modes corresponding to clinically meaningful subpopulations (e.g., diabetic patients with renal impairment) that trees isolate naturally \cite{yan2022benchmarking}.
-
-    \item \textbf{Trees capture nonlinear interactions and rare-class structure.}
-    Benchmarking studies show that many synthetic generators fail on minority-class fidelity and long-tail patterns \cite{yan2022benchmarking,kaabachi2025scoping}.
-    Trees, however:
-    \begin{itemize}
-        \item create leaves dominated by small cohorts, preserving rare but real combinations;
-        \item do not require smoothness assumptions;
-        \item naturally handle categorical features without embedding instabilities.
-    \end{itemize}
-    This addresses the rare-disease problem, where GAN adversarial losses dominated by majority cases fail to reproduce minor diagnostic categories \cite{yan2022benchmarking}.
-    Rare-class preservation is a central motivation for using trees in the healthcare domain.
-
-    \item \textbf{Trees provide interpretability and explainable generative structure.}
-    Diffusion models and GANs are largely black boxes.
-    Tree partitions, by contrast, provide:
-    \begin{itemize}
-        \item transparent decision boundaries;
-        \item interpretable splits that correspond to medical and business logic (e.g., ``if age $>$ 50 and BP $<$ threshold $\rightarrow$ leaf'');
-        \item auditability of conditional distributions.
-    \end{itemize}
-    For regulated domains such as EHRs, this is essential: EHR synthesis requires mechanisms that can be audited for safety and plausibility \cite{kaabachi2025scoping}, a requirement that trees satisfy in a way neural generators do not.
-
-    \item \textbf{Trees can be combined with flow or diffusion models to become fully generative.}
-    Jolicoeur-Martineau et al.\ \cite{jolicoeur2023forest} introduce the key conceptual innovation: using tree-based function approximation within a flow-matching generative pipeline.
-    Instead of learning vector fields across the entire mixed-type space with a neural network, the model uses XGBoost regressors at each discrete time level, where:
-    \begin{itemize}
-        \item feature interactions are captured by tree splits;
-        \item categorical variables are handled via explicit classifier heads (HS3F \cite{akazan2024hs3f});
-        \item numerical features are transported by continuous flows within locally homogeneous regions.
-    \end{itemize}
-    This combination addresses the core weaknesses of neural-only models on tabular data.
-
-    \item \textbf{Trees encode constraints better than pure neural models.}
-    Logical constraints---sex--pregnancy consistency, ICD code compatibility, physiological ranges---are difficult to learn implicitly from data.
-    Trees help because:
-    \begin{itemize}
-        \item splits often correspond to implicit constraints (``pregnancy-related codes $\rightarrow$ female leaves only'');
-        \item each leaf forms a coherent subpopulation, reducing the risk of constraint violations;
-        \item constraint checking becomes local rather than global.
-    \end{itemize}
-\end{enumerate}
+These are empirical design motivations, not guarantees. Tree-based flow matching can still produce implausible records, poor minority-class utility, or non-trivial privacy risk. The point of this dissertation is to test those limits on sequential ICU data rather than assume they are resolved.
 
 \subsection{The Healthcare Domain}
 
 The healthcare domain was chosen for three compounding reasons:
 \begin{itemize}
-    \item \textbf{Constraint:} healthcare data is one of the most constrained data formats, due to acute concerns of privacy, scarcity, and complexity. Real patient records are difficult to share due to regulations such as HIPAA and GDPR \cite{dataProtectionAct2018}. Scarcity is common especially for rare conditions, meaning many clinical AI projects suffer from small sample sizes and extreme class imbalance.
+    \item \textbf{Constraint:} healthcare data is one of the most constrained data formats, due to acute concerns of privacy, scarcity, and complexity. Real patient records are difficult to share due to regulations such as the UK Data Protection Act 2018 and UK GDPR \cite{dataProtectionAct2018,icoResearchSafeguards}. Scarcity is common especially for rare conditions, meaning many clinical AI projects suffer from small sample sizes and extreme class imbalance.
     \item \textbf{Relevancy:} EHRs contain structured fields amounting to hundreds of variables, many of which are mixed-type (continuous vital signs, binary intervention flags, categorical diagnosis codes). Healthcare data also comes with logical and physiological constraints that must be preserved: patients coded as male cannot have a pregnancy diagnosis, laboratory values must remain within humanly plausible ranges, and procedure codes should align with diagnosis codes.
     \item \textbf{Impact:} there is an established and growing need for synthetic data in healthcare research to enable sharing and analysis without compromising patient privacy \cite{kaabachi2025scoping,yan2022benchmarking}. Synthetic data also offers a principled mechanism to address class imbalance in rare-event clinical prediction tasks.
 \end{itemize}
 
 \section{Literature Review}
-\subsection[ForestFlow (Jolicoeur-Martineau et al., 2023)]{Review of \textit{Generating and Imputing Tabular Data via Diffusion and Flow-Based Gradient-Boosted Trees} (Jolicoeur-Martineau et al., 2023)}
+\subsection[ForestFlow (Jolicoeur-Martineau et al., 2024)]{Review of \textit{Generating and Imputing Tabular Data via Diffusion and Flow-Based Gradient-Boosted Trees} (Jolicoeur-Martineau et al., 2024)}
 \subsubsection{Problem Explored}
-Jolicoeur-Martineau et al.\ (2023) investigate how to perform both synthetic data generation and missing-value imputation for tabular datasets using diffusion models and flow-matching, but with a key departure from prior work: instead of neural networks, they use gradient-boosted decision trees (GBTs) to approximate the score function or vector field required by these generative frameworks. Their motivation arises from the observation that traditional deep generative models---such as GANs, VAEs, or neural diffusion networks---struggle with mixed-type tabular data, discontinuous feature relationships, rare categories, and non-random missingness. Since tree-based models are more naturally adapted to these characteristics and do not assume smoothness, the authors reframe diffusion and flow-based generative modelling around GBTs to better capture tabular structure.
+Jolicoeur-Martineau et al.\ (2024) investigate how to perform both synthetic data generation and missing-value imputation for tabular datasets using diffusion models and flow-matching, but with a key departure from prior work: instead of neural networks, they use gradient-boosted decision trees (GBTs) to approximate the score function or vector field required by these generative frameworks. Their motivation arises from the observation that traditional deep generative models, such as GANs, VAEs \cite{xu2019ctgan}, or neural diffusion networks, struggle with mixed-type tabular data, discontinuous feature relationships, rare categories, and non-random missingness. Since tree-based models are more naturally adapted to these characteristics and do not assume smoothness, the authors reframe diffusion and flow-based generative modelling around GBTs to better capture tabular structure.
 
 Past work on score-based generative models has overwhelmingly relied on neural networks, particularly for continuous domains like images. In the tabular case, these neural models often distort categorical distributions, fail to preserve joint dependencies, and require heavy computational resources. The authors position their work as a practical and more data-appropriate alternative.
 
 \subsubsection{Proposed Method}
-The proposed system, termed \textit{ForestDiffusion}, implements either a score-based diffusion model or a flow-matching model, but replaces neural score or vector-field approximators with gradient-boosted trees. In the diffusion formulation, the model assumes a forward noising process
+The proposed system, termed \textit{ForestDiffusion} (and referred to as \textit{ForestFlow} in this report when used in its flow-matching mode, which is the mode adopted throughout), implements either a score-based diffusion model or a flow-matching model, but replaces neural score or vector-field approximators with gradient-boosted trees. In the diffusion formulation, the model assumes a forward noising process
 \begin{equation}
     dx_t = f(t) x_t \, dt + g(t) \, dW_t,
 \end{equation}
@@ -113,7 +63,7 @@ The authors conduct extensive experiments on 27 real-world tabular datasets, eva
 For imputation, the method performs comparably to state-of-the-art imputation techniques, despite functioning as a general-purpose generative model rather than a specialised imputation framework. A significant practical contribution is that the entire system can be trained efficiently using CPU parallelism, avoiding the need for GPU-heavy neural networks.
 
 \subsubsection{Future Work and Limitations}
-The authors note that categorical variables remain challenging to embed cleanly into continuous-time diffusion or flow processes, and suggest that improved treatment of categorical noise processes may enhance performance. The method also requires training multiple GBT models across time steps, which can be memory-intensive; future work may explore parameter sharing or sparse representations. Additional extensions include conditional tabular generation, temporal or relational tabular structures, and hybrid tree--neural approaches. While imputation performance is strong, specialised imputation models can still outperform it under extreme missingness, indicating room for improved conditional sampling.
+The authors note that categorical variables remain challenging to embed cleanly into continuous-time diffusion or flow processes, and suggest that improved treatment of categorical noise processes may enhance performance. The method also requires training multiple GBT models across time steps, which can be memory-intensive; future work may explore parameter sharing or sparse representations. Additional extensions include conditional tabular generation, temporal or relational tabular structures, and hybrid tree--neural approaches. Although imputation performance is strong, specialised imputation models can still outperform it under extreme missingness, indicating room for improved conditional sampling.
 
 \subsection{Review of \textit{Generating Tabular Data Using Heterogeneous Sequential Feature Forest Flow Matching} (Akazan et al., 2024)}
 
@@ -135,7 +85,7 @@ For each feature $j$ in this sequence:
 Each feature’s model is conditioned on all previously generated features, enabling the sequential process to capture inter-feature dependencies. The method retains the CPU-friendly, tree-based architecture of ForestFlow while properly handling discrete outputs.
 
 \subsubsection{Findings and Empirical Results}
-On standard tabular benchmarks, HS3F matches or outperforms ForestFlow on datasets with substantial categorical content, while maintaining comparable performance on purely continuous datasets. The sequential feature generation adds computational cost proportional to the number of features, but avoids the noise-then-round artefacts that degrade ForestFlow’s categorical fidelity.
+On standard tabular benchmarks, HS3F matches or outperforms ForestFlow on datasets with substantial categorical content, while maintaining comparable performance on purely continuous datasets. The sequential feature generation adds computational cost proportional to the number of features, but avoids the noise-and-rounding artefacts that degrade ForestFlow’s categorical fidelity.
 
 \subsubsection{Relevance to This Project}
 HS3F is directly relevant because ICU data from MIMIC-III contains a mixture of continuous vital signs, binary intervention flags, and categorical variables. The project implements both ForestFlow and HS3F as selectable backbones, allowing empirical comparison of the two approaches on clinical data where categorical fidelity is clinically meaningful (e.g., binary ventilation status, categorical diagnosis codes).
@@ -152,32 +102,16 @@ MIMIC-Extract \cite{wang2020mimicextract} provides a standardised pipeline that 
 The choice of MIMIC-III via MIMIC-Extract provides a well-studied, high-dimensional, mixed-type clinical dataset with known properties and established benchmarks. It also imposes specific data-governance obligations (credentialing, data use agreement) that are addressed in the legal and ethical analysis of this report.
 
 \subsection{Existing Synthetic Tabular and EHR Generators}
+This project evaluates HS3F and ForestFlow directly, with CTGAN as a practical lower-bound reference within the same data and metric pipeline. Other families (diffusion and transformer generators) are discussed as context for trade-offs rather than as implemented competitors.
 
-Several established generator families serve as reference points for this work. The project includes a CTGAN/CRGAN-style lower-bound baseline in the implemented evaluation pipeline, while broader architecture-parity comparisons across other generator families remain future work. Their methodological characteristics motivate the design choices in this project.
-
-\subsubsection{GAN-Based Generators}
+The comparison criteria used throughout this dissertation are:
 \begin{itemize}\tightlist
-    \item \textbf{CTGAN} \cite{xu2019ctgan}: A conditional GAN for tabular data that uses mode-specific normalisation to handle multimodal continuous distributions and training-by-sampling to address class imbalance. CTGAN is widely used but is susceptible to mode collapse on high-dimensional mixed-type data.
-    \item \textbf{TimeGAN} \cite{yoon2019timegan}: A GAN variant specifically designed for time-series data, combining an autoencoder with adversarial training in a learned embedding space. TimeGAN addresses temporal structure but requires GPU training and careful hyperparameter tuning.
+    \item mixed-type fidelity under temporal generation,
+    \item patient-level utility under class imbalance,
+    \item CPU efficiency at sweep scale,
+    \item privacy diagnostics that include both proximity and attack-based measures.
 \end{itemize}
+These criteria are the reason this work prioritises tree-based flow matching for implementation, while still treating release readiness as an open question.
 
-\subsubsection{Diffusion and Score-Based Generators}
-\begin{itemize}\tightlist
-    \item \textbf{TabDDPM} \cite{kotelnikov2023tabddpm}: A denoising diffusion probabilistic model adapted for mixed-type tabular data, applying multinomial diffusion to categorical features and Gaussian diffusion to continuous features. TabDDPM demonstrated superiority over GAN/VAE alternatives on extensive benchmarks at ICML~2023 and is a leading neural baseline in tabular generation.
-    \item \textbf{TabSyn} \cite{zhang2024tabsyn}: Combines a VAE-crafted latent space with score-based diffusion, achieving state-of-the-art results on mixed-type generation at ICLR~2024 (oral presentation) with 86\% reduction in column-wise distribution error and 67\% reduction in correlation error over prior methods.
-    \item \textbf{STaSy} \cite{kim2023stasy}: A score-based tabular data synthesis method that applies score matching with self-paced learning to handle the heterogeneity of tabular features.
-\end{itemize}
-
-\subsubsection{Transformer-Based Generators}
-\begin{itemize}\tightlist
-    \item \textbf{GReaT} \cite{borisov2023great}: Uses fine-tuned large language models (GPT-2) to generate tabular data by serializing rows as text. Achieves competitive results on standard benchmarks without architectural modifications for tabular structure.
-    \item \textbf{REaLTabFormer} \cite{solatorio2023realtabformer}: A two-stage transformer using an autoregressive GPT-2 model for parent tables and a sequence-to-sequence model for relational data, with a novel $Q_\delta$ overfitting detection statistic.
-    \item \textbf{PromptEHR} \cite{wang2022promptehr}: Applies prompt learning to conditional EHR generation on MIMIC-III, formulating generation as text-to-text translation with support for longitudinal, cross-modal, and conditional generation.
-\end{itemize}
-
-\subsubsection{Toolkits and Ecosystems}
-\begin{itemize}\tightlist
-    \item \textbf{SDV ecosystem} \cite{sdvproject}: The Synthetic Data Vault provides a suite of tabular and sequential generators (including GaussianCopula, CTGAN, and PAR for sequential data) with integrated evaluation metrics. It represents the most accessible baseline ecosystem for synthetic tabular data.
-\end{itemize}
-
-The tree-based approach taken in this project is motivated by the observation that neural generators often require GPU resources, extensive hyperparameter tuning, and architectural customisation for mixed-type data, while tree ensembles provide strong inductive biases for tabular structure without these constraints.
+\subsection{Literature Synthesis and Project Gap}
+Prior work has largely established that synthetic tabular generators can reproduce parts of observed data structure, and that tree-based flow matching is a credible CPU-efficient alternative to neural backbones on mixed-type tables \cite{jolicoeur2023forest,akazan2024hs3f}. However, key gaps remain for this dissertation's setting: evidence is still concentrated on static benchmark tables rather than autoregressive ICU trajectories, direct utility transfer under patient-level class imbalance is often weaker than fidelity-only reporting suggests, and privacy claims are frequently under-specified when based mainly on proximity diagnostics \cite{yao2025dcrdelusion,kaabachi2025scoping}. This project therefore tests a narrower question than ``which model is best in general'': whether adapting ForestFlow and HS3F to sequential ICU generation yields technically credible fidelity, utility, and privacy-diagnostic behaviour under one reproducible pipeline, while explicitly distinguishing feasibility evidence from release-readiness claims.

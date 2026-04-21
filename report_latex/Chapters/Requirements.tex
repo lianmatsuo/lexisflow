@@ -1,17 +1,17 @@
 \chapter{Requirements and Specification}
 
-This chapter defines the functional and non-functional requirements for the synthetic ICU trajectory generation system, derived from the research objectives stated in Chapter~1. Requirements are prioritised using the MoSCoW method (Must, Should, Could, Won't) and linked to verification criteria used in later evaluation.
+This chapter defines the functional and non-functional requirements for the synthetic ICU trajectory generation system, derived from the research objectives stated in Chapter~1. Requirements are prioritised using the MoSCoW method (Must, Should, Could, Will not have this time) \cite{agileBusinessConsortiumMoSCoW} and linked to verification criteria used in later evaluation.
 
 %==============================================================================
 \section{Use Cases}
 %==============================================================================
 
-Synthetic ICU trajectory generation is a research-facing capability rather than a consumer product. Accordingly, the actors identified here are organisations and individuals engaged in clinical data science, machine-learning research, and healthcare data governance---the three communities for which synthetic EHR generators have the most documented practical value \cite{yan2022benchmarking,kaabachi2025scoping}.
+Synthetic ICU trajectory generation is a research-facing capability rather than a consumer product. Accordingly, the actors identified here are organisations and individuals engaged in clinical data science, machine-learning research, and healthcare data governance, the three communities for which synthetic EHR generators have the most documented practical value \cite{yan2022benchmarking,kaabachi2025scoping}.
 
 \subsection{Actors}
 
 \begin{description}
-    \item[\textbf{Clinical Data Custodian (CDC).}] A data engineer or clinical informatics specialist at a hospital or research institute who holds a credentialed dataset (e.g.\ MIMIC-III) and wishes to derive a shareable synthetic analogue. This actor is primarily motivated by data-governance obligations---privacy regulations such as HIPAA and GDPR restrict direct sharing of raw patient records \cite{dataProtectionAct2018}. The CDC runs the training and generation pipeline and is responsible for evaluating the privacy properties of the synthetic output before any release.
+    \item[\textbf{Clinical Data Custodian (CDC).}] A data engineer or clinical informatics specialist at a hospital or research institute who holds a credentialed dataset (e.g.\ MIMIC-III) and wishes to derive a shareable synthetic analogue. This actor is primarily motivated by data-governance obligations, privacy regulations such as UK GDPR and the Data Protection Act 2018 restrict direct sharing of raw patient records \cite{dataProtectionAct2018,icoResearchSafeguards}. The CDC runs the training and generation pipeline and is responsible for evaluating the privacy properties of the synthetic output before any release.
 
     \item[\textbf{Downstream ML Researcher (MLR).}] A machine-learning researcher or data scientist who requires realistic ICU time-series data to develop, benchmark, or fine-tune clinical prediction models (e.g.\ mortality prediction, sepsis onset, ICU length-of-stay classifiers) but does not have direct access to a credentialed patient dataset. The MLR receives a synthetic cohort from the CDC and uses it as a training corpus \cite{yan2022benchmarking}.
 
@@ -25,15 +25,15 @@ Synthetic ICU trajectory generation is a research-facing capability rather than 
 
 \begin{enumerate}
     \item The CDC obtains credentialed MIMIC-III access and produces hourly ICU tables via a MIMIC-Extract style preprocessing pipeline.
-    \item The CDC runs the data preparation scripts (\texttt{00\_prepare}, \texttt{01\_preprocess}) to build autoregressive training tables.
-    \item The CDC fits the tabular preprocessor on the full dataset (\texttt{01b\_fit\_preprocessor}) to capture all categorical values and numeric ranges.
-    \item The CDC trains the generative model (\texttt{02\_train\_model}) using the preferred backbone (ForestFlow or HS3F).
-    \item The CDC generates a synthetic patient cohort (\texttt{03\_generate\_synthetic}) at the desired scale.
+    \item The CDC runs the data preparation scripts (\texttt{prepare\_hour0}, \texttt{prepare\_autoregressive}) to build autoregressive training tables.
+    \item The CDC fits the tabular preprocessor on the full dataset (\texttt{fit\_autoregressive\_preprocessor}) to capture all categorical values and numeric ranges.
+    \item The CDC trains the generative model (\texttt{train\_autoregressive}) using the preferred backbone (ForestFlow or HS3F).
+    \item The CDC generates a synthetic patient cohort (\texttt{generate}) at the desired scale.
     \item The CDC runs the privacy evaluation suite and reviews DCR diagnostics and membership inference attack scores.
     \item If privacy risk is within acceptable thresholds, the synthetic cohort is packaged and shared with the MLR. Real patient tables are never distributed.
 \end{enumerate}
 
-\textbf{Success criterion:} DCR overfitting-protection score $\geq$ threshold; DOMIAS-style MIA ROC-AUC near chance level; no exact-match records in synthetic output.
+\textbf{Acceptance target (research stage):} DCR overfitting-protection score exceeds the project-defined acceptability threshold specified in the Evaluation chapter; DOMIAS-style MIA ROC-AUC near chance level; no exact-match records in synthetic output. Meeting these targets supports cautious feasibility claims, not formal release assurance.
 
 \subsection{Use Case 2: Synthetic-Data-Augmented Model Development}
 
@@ -48,7 +48,7 @@ Synthetic ICU trajectory generation is a research-facing capability rather than 
     \item If utility is insufficient, the MLR requests a regeneration from the CDC with adjusted hyperparameters or a larger synthetic cohort.
 \end{enumerate}
 
-\textbf{Success criterion:} Synthetic-trained classifier achieves ROC-AUC within an acceptable gap of the real-trained baseline; F1 scores indicate minority-class retention.
+\textbf{Acceptance target (research stage):} Synthetic-trained classifier achieves ROC-AUC within 0.15 ROC-AUC of the real-trained baseline; F1 scores indicate minority-class retention.
 
 \subsection{Use Case 3: Privacy Audit Prior to Data Release}
 
@@ -56,22 +56,23 @@ Synthetic ICU trajectory generation is a research-facing capability rather than 
 \textbf{Goal:} Independently verify that the synthetic dataset approved by the CDC does not expose training-set individuals before external release is approved.
 
 \begin{enumerate}
-    \item The PA receives the synthetic cohort and the evaluation artifacts (sweep log, privacy metrics) from the CDC.
+    \item The PA receives the synthetic cohort and the evaluation artefacts (sweep log, privacy metrics) from the CDC.
     \item The PA re-runs the privacy evaluation module (\texttt{privacy\_metrics.py}) on the synthetic cohort against the held-out real data.
     \item The PA inspects DCR distributions, baseline and overfitting protection scores, and MIA ROC-AUC.
-    \item The PA cross-references findings against the DCR-delusion literature \cite{yao2025dcrdelusion}---recognising that proximity metrics alone are not sufficient anonymity evidence---and supplements with DOMIAS-style attack results.
+    \item The PA cross-references findings against the DCR-delusion literature \cite{yao2025dcrdelusion}, recognising that proximity metrics alone are not sufficient anonymity evidence, and supplements with DOMIAS-style attack results.
     \item The PA issues a release recommendation, with caveats on subgroup populations or features where risk remains elevated.
 \end{enumerate}
 
-\textbf{Success criterion:} MIA attacker advantage is near zero; no individual synthetic record matches a real training record exactly; privacy report is documented alongside the synthetic dataset.
+\textbf{Acceptance target (research stage):} MIA ROC-AUC within 0.1 of 0.5; exact-match rate $<$ 0.001 between synthetic records and real training records; privacy report is documented alongside the synthetic dataset.
 
 %==============================================================================
 \section{Functional Requirements}
 %==============================================================================
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \small
+\begin{singlespace}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}ll>{\raggedright\arraybackslash}Xl@{}}
 \toprule
@@ -79,9 +80,9 @@ Synthetic ICU trajectory generation is a research-facing capability rather than 
 \midrule
 FR1 & Must & The system must preprocess MIMIC-III hourly ICU tables into an autoregressive format with lag-1 features, separating static and dynamic columns. & Unit tests; output CSV inspection \\
 \midrule
-FR2 & Must & The system must fit a tabular preprocessor on the full dataset via streaming to capture all categorical values and numeric ranges. & Preprocessor artifact; inverse-transform round-trip \\
+FR2 & Must & The system must fit a tabular preprocessor on the full dataset via streaming to capture all categorical values and numeric ranges. & Preprocessor artefact; inverse-transform round-trip \\
 \midrule
-FR3 & Must & The system must train a conditional generative model (ForestFlow or HS3F) on the autoregressive data, learning $p(\mathbf{x}_t \mid \mathbf{x}_{t-1}, \mathbf{s})$. & Model artifact; unit tests \\
+FR3 & Must & The system must train a conditional generative model (ForestFlow or HS3F) on the autoregressive data, learning $p(\mathbf{x}_t \mid \mathbf{x}_{t-1}, \mathbf{s})$. & Model artefact; unit tests \\
 \midrule
 FR4 & Must & The system must generate synthetic patient trajectories by autoregressively sampling from the trained model. & Output CSV; row count \\
 \midrule
@@ -89,15 +90,14 @@ FR5 & Must & The system must evaluate synthetic data quality via KS statistics, 
 \midrule
 FR6 & Must & The system must evaluate downstream utility via multi-task patient-level TSTR covering mortality and ICU length-of-stay prediction. & TSTR metrics in sweep CSV \\
 \midrule
-FR7 & Should & The system should train an IID hour-0 model for fully synthetic generation without requiring real initial conditions. & Hour-0 model artifact \\
+FR7 & Should & The system should train an IID hour-0 model for fully synthetic generation without requiring real initial conditions. & Hour-0 model artefact \\
 \midrule
 FR8 & Should & The system should evaluate privacy risk via DCR diagnostics and membership inference attacks. & Privacy metrics output \\
 \midrule
-FR9 & Should & The system should support both ForestFlow and HS3F backbones via a unified interface with backbone selection. & CLI flag; unit tests \\
-\midrule
-FR10 & Could & The system could provide visualisation of sweep results across hyperparameter configurations. & Plot output files \\
+FR9 & Could & The system could provide visualisation of sweep results across hyperparameter configurations. & Plot output files \\
 \bottomrule
 \end{tabularx}
+\end{singlespace}
 \caption{Functional requirements with MoSCoW priorities.}
 \label{tab:func-req}
 \end{table}
@@ -106,29 +106,27 @@ FR10 & Could & The system could provide visualisation of sweep results across hy
 \section{Non-Functional Requirements}
 %==============================================================================
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \small
+\begin{singlespace}
 \setlength{\tabcolsep}{3pt}
 \begin{tabularx}{\textwidth}{@{}ll>{\raggedright\arraybackslash}Xl@{}}
 \toprule
 \textbf{ID} & \textbf{Priority} & \textbf{Requirement} & \textbf{Verification} \\
 \midrule
-NFR1 & Must & The system must be reproducible: deterministic seeds, explicit artifact paths, and canonical CSV schemas. & Repeated runs; seed logging \\
+NFR1 & Must & The system must be reproducible: deterministic seeds, explicit artefact paths, and canonical CSV schemas. & Repeated runs; seed logging \\
 \midrule
 NFR2 & Must & The system must train on CPU without requiring GPU resources. & Successful training on CPU-only machine \\
 \midrule
-NFR3 & Must & The system must not commit or expose real patient data in version-controlled artifacts. & \texttt{.gitignore} rules; repository inspection \\
+NFR3 & Must & The system must not commit or expose real patient data in version-controlled artefacts. & \texttt{.gitignore} rules; repository inspection \\
 \midrule
 NFR4 & Should & The system should handle datasets with up to 2 million rows without exceeding available memory. & Memory-efficient data iterator \\
 \midrule
-NFR5 & Should & The hyperparameter sweep should be resumable, skipping previously completed configurations. & Sweep rerun behaviour \\
-\midrule
-NFR6 & Should & The system should include a unit test suite with $>$50 tests covering core modules. & \texttt{pytest} output \\
-\midrule
-NFR7 & Could & The system could cache transformed data matrices to avoid redundant preprocessing across sweep runs. & Cache hit/miss logging \\
+NFR5 & Could & The system could cache transformed data matrices to avoid redundant preprocessing across sweep runs. & Cache hit/miss logging \\
 \bottomrule
 \end{tabularx}
+\end{singlespace}
 \caption{Non-functional requirements with MoSCoW priorities.}
 \label{tab:nonfunc-req}
 \end{table}
@@ -171,8 +169,20 @@ NFR7 & Could & The system could cache transformed data matrices to avoid redunda
 
 \begin{itemize}\tightlist
     \item \textbf{Data access}: MIMIC-III requires credentialing and a signed data use agreement; the system cannot be tested without this access.
-    \item \textbf{GitHub API rate limits}: Not applicable (no external API dependency), but sweep runtime scales as $O(n_t \times n_{\text{noise}} \times d_x)$ per configuration.
-    \item \textbf{Baseline scope constraint}: A CTGAN/CRGAN baseline is included as a lower-bound/reference comparator, but it is not implemented as a fully autoregressive per-row conditioned generator. Extending it to a matched autoregressive architecture is a substantial design change and is outside this thesis scope.
+    \item \textbf{Computational cost}: Sweep runtime scales as $O(n_t \times n_{\text{noise}} \times d_x)$ per configuration, which at 8$\times$8 Fibonacci grid scale yields wall-clock costs between $\approx$3 minutes and $\approx$6 hours per cell; low-cost cells correspond to small $(n_t, n_{\text{noise}})$, high-cost cells to $(n_t{=}34, n_{\text{noise}}{=}34)$.
     \item \textbf{Single dataset}: All requirements are specified and verified against MIMIC-III; portability to other clinical datasets is not guaranteed.
     \item \textbf{No real-time or interactive generation}: The system operates in batch mode via command-line scripts.
+\end{itemize}
+
+%==============================================================================
+\section{Target Criteria and Outcome Alignment}
+%==============================================================================
+
+To avoid ambiguity, the use-case criteria above are treated as \emph{acceptance targets} for this dissertation rather than as pre-satisfied outcomes. Chapter~7 reports whether each target was met, partially met, or not met.
+
+Based on the current evidence reported later in the dissertation:
+\begin{itemize}\tightlist
+    \item The utility target of being within 0.15 ROC-AUC of the real baseline was \textbf{not met} (best synthetic mortality ROC-AUC remains around 0.658 versus a real baseline around 0.82).
+    \item Minority-class retention was \textbf{not met} (mortality and LOS F1 values indicate persistent minority-class collapse; see Evaluation section~\ref{sec:mortality-tstr}).
+    \item Privacy diagnostics are \textbf{partially met} as feasibility evidence (no exact-match records and bounded attack scores), but they do \textbf{not} establish formal release assurance on their own.
 \end{itemize}

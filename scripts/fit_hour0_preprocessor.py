@@ -26,7 +26,7 @@ import pickle
 
 import pandas as pd
 
-from synth_gen.data import TabularPreprocessor, identify_feature_types
+from lexisflow.data import TabularPreprocessor, identify_feature_types
 
 
 def main():

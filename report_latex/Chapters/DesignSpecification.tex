@@ -1,4 +1,5 @@
 \chapter{Design Specification and Current System Architecture}
+\label{ch:design}
 
 %==============================================================================
 \section{Data Pipeline and Representation}
@@ -7,8 +8,8 @@
 \subsection{Source and Canonical Input}
 
 The operational pipeline starts from hourly ICU tables derived from MIMIC-III \cite{johnson2016mimic}
-through a MIMIC-Extract style workflow \cite{wang2020mimicextract}. The canonical training input for autoregressive modeling is \code{src/synth_gen/data/processed/autoregressive\_data.csv}.
-Hour-0 training uses \code{src/synth_gen/data/processed/hour0\_data.csv}.
+through a MIMIC-Extract style workflow \cite{wang2020mimicextract}. The canonical training input for autoregressive modelling is \code{data/processed/autoregressive\_data.csv}.
+Hour-0 training uses \code{data/processed/hour0\_data.csv}.
 
 \subsection{Autoregressive Transformation}
 
@@ -20,20 +21,14 @@ With lag-1 engineering, each row at time $t$ uses:
 \end{align}
 
 \paragraph{Lag-0 and missing lag cells (implemented).}
-The autoregressive table is built in \code{src/synth_gen/data/autoregressive.py} by sorting on \code{(subject\_id, hours\_in)} and, for each dynamic column, computing \code{groupby(subject\_id)[col].shift(lag)} with \code{lag=1}.
-\textbf{Lag-0 (no in-group history).} The first row of each \code{subject\_id} has no prior row in that group, so for each dynamic column \code{col} the lag feature \code{col\_lag1} is \code{NaN} before filling.
-\textbf{Fill strategy and value.} When \code{fill\_strategy="special"}, the implementation assigns \code{df\_lagged.fillna(fill\_value)} to the entire lagged-column block.
-The entry point \code{scripts/01\_preprocess\_data.py} calls \code{prepare\_autoregressive\_data} with \code{fill\_strategy="special"} and \code{fill\_value=-1.0} (matching the function defaults for those parameters), so every lag-column \code{NaN} becomes the float sentinel \code{-1.0}.
-The same fill applies to \code{NaN}s arising when $t-1$ exists but the source value at $t-1$ was missing: \code{shift} propagates \code{NaN}, which is then indistinguishable from lag-0 after filling.
+The autoregressive table is built by sorting on subject identifier and hour index and, for each dynamic column, producing a lag-1 feature by shifting within each subject group.
+\textbf{Lag-0 (no in-group history).} The first row of each subject has no prior row in that group, so the lag feature is undefined before filling.
+\textbf{Fill strategy and value.} Undefined lag entries are replaced by the float sentinel $-1.0$, yielding a dense, rectangular lag feature matrix (see Implementation chapter for the concrete pipeline step and parameters).
+The same fill applies to missing entries arising when $t-1$ exists but the source value at $t-1$ was missing: the shift propagates the missing marker, which is then indistinguishable from lag-0 after filling.
 
 \paragraph{Rationale and risks.}
 The sentinel keeps a dense, rectangular lag feature matrix so hour~0 rows remain in the autoregressive CSV and need not be dropped for lack of history; the IID hour-0 pipeline can still model the initial state separately.
-Risks: \code{-1.0} is not a reserved missing code in the raw feature space---it can collide with legitimate negative measurements or encodings that use $-1$---and one code cannot separate structural ``no prior timestep'' from ``prior observation missing'' in the flat table.
-
-\paragraph{Mitigation (recommended checks).}
-Treat the choice as an empirical assumption.
-As a sensitivity analysis or ablation, rerun with other supported options in code (\code{fill\_strategy} \code{zero} or \code{mean}, or \code{special} with a \code{fill\_value} chosen per feature scale) and compare validation or short rollouts, with particular attention to variables where $-1$ is plausible.
-Outcomes remain dataset- and model-dependent, and improvement is not guaranteed.
+Risks: \code{-1.0} is not a reserved missing code in the raw feature space and it conflates ``no prior timestep'' with ``prior value missing.'' Chapter~7 links this design simplification to observed fidelity limitations.
 
 \subsection{Column Roles Persisted as Metadata}
 
@@ -52,7 +47,7 @@ This design persists both semantic columns and transformed indices because trans
 
 \subsection{Feature-Type Identification}
 
-Feature typing is centralized in \code{src/synth_gen/data/feature\_utils.py} and consumed by \code{scripts/fit\_autoregressive\_preprocessor.py}.
+Feature typing is centralised in a dedicated feature-typing utility and consumed by the preprocessor fit step.
 Columns are grouped into:
 \begin{itemize}\tightlist
     \item numeric continuous,
@@ -70,11 +65,11 @@ The current \code{TabularPreprocessor} is intentionally simple:
     \item Categorical: label encoding to integer IDs.
 \end{enumerate}
 
-This design differs from older one-hot/min-max variants and aligns with the tree-based backend, where strict scaling is not required for split-based learners \cite{chen2016xgboost}.
+This design differs from one-hot plus min-max encoding variants common in tabular generative baselines and aligns with the tree-based backend, where strict scaling is not required for split-based learners \cite{chen2016xgboost}.
 
 \subsection{Streaming Fit for Full-Dataset Coverage}
 
-\code{scripts/fit\_autoregressive\_preprocessor.py} performs chunked fitting on the full autoregressive CSV via repeated \code{partial\_fit()} calls followed by \code{finalize\_fit()}, then persists the artifact at \code{models/preprocessor\_full.pkl}.
+The preprocessor supports streaming chunked fitting over the full CSV, avoiding a materialised in-memory copy of the training table.
 
 The design goal is to capture rare categorical values and robust numeric ranges before any subsampled training.
 
@@ -112,9 +107,9 @@ instead of naive prefix slicing.
 
 Figure~\ref{fig:pipeline-overview} shows the end-to-end pipeline from raw MIMIC-III ICU tables to evaluated synthetic output. The two-stage architecture is explicit: the hour-0 IID model and the autoregressive transition model are trained independently on their respective data slices, and synthetic trajectories are assembled by chaining their outputs.
 
-% ---------------------------------------------------------------------------
+% , , , , , , , , , , , , , , , , , , , , , , , , ,
 % Figure 1: Two-stage pipeline overview
-% ---------------------------------------------------------------------------
+% , , , , , , , , , , , , , , , , , , , , , , , , ,
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[scale=0.88, transform shape,
@@ -131,53 +126,53 @@ Figure~\ref{fig:pipeline-overview} shows the end-to-end pipeline from raw MIMIC-
                  inner sep=4pt, fill=gray!5}
 ]
 
-% --- Data preparation column (left) ---
+% ,  Data preparation column (left) ,
 \node[data]  (mimic)   {MIMIC-III ICU tables};
-\node[proc,  below=of mimic]  (p00)    {\texttt{00\_prepare}};
-\node[proc,  below=of p00]    (p01)    {\texttt{01\_preprocess}};
-\node[proc,  below=of p01]    (p01b)   {\texttt{01b\_fit\_preprocessor}};
+\node[proc,  below=of mimic]  (p00)    {Prepare hour-0 table};
+\node[proc,  below=of p00]    (p01)    {Prepare autoregressive table};
+\node[proc,  below=of p01]    (p01b)   {Fit full-data preprocessor};
 
-% --- Hour-0 branch (middle column) ---
+% ,  Hour-0 branch (middle column) ,
 % Anchored at the height of p00 so both training nodes are at the same level
 \node[model, right=24mm of p00]  (h0train)  {Train hour-0 IID model};
 \node[model, below=of h0train]   (h0gen)    {Sample initial states $\hat{\mathbf{x}}_0$};
 
-% --- Autoregressive branch (right column, same top height as h0 branch) ---
+% ,  Autoregressive branch (right column, same top height as h0 branch) ,
 \node[model, right=20mm of h0train] (artrain)  {Train AR model};
 \node[model, below=of artrain]      (argen)    {Autoregressively roll-out $\hat{\mathbf{x}}_{1:T}$};
 
-% --- Merge: centred between h0gen and argen ---
+% ,  Merge: centred between h0gen and argen ,
 \node[proc] at ($(h0gen.south)!0.5!(argen.south) + (0,-16mm)$) (merge)
       {Assemble synthetic cohort CSV};
 
-% --- Evaluation stack (below merge) ---
+% ,  Evaluation stack (below merge) ,
 \node[eval, below=of merge] (tstr)   {Patient-level TSTR (mortality, LOS)};
 \node[eval, below=of tstr]  (qual)   {KS / Correlation / Range violations};
 \node[eval, below=of qual]  (priv)   {DCR + DOMIAS-style MIA};
 
-% --- Arrows: data prep ---
+% ,  Arrows: data prep ,
 \draw[arr] (mimic) -- (p00);
 \draw[arr] (p00)   -- (p01);
 \draw[arr] (p01)   -- (p01b);
 
-% --- Arrows: data prep → branches ---
+% ,  Arrows: data prep → branches ,
 \draw[arr] (p00)   -- (h0train);
 \draw[arr] (p01b)  -- (artrain);
 
-% --- Arrows: within branches ---
+% ,  Arrows: within branches ,
 \draw[arr] (h0train) -- (h0gen);
 \draw[arr] (artrain) -- (argen);
 
-% --- Arrows: converge to merge ---
+% ,  Arrows: converge to merge ,
 \draw[arr] (h0gen.south) -- (merge.north west);
 \draw[arr] (argen.south) -- (merge.north east);
 
-% --- Arrows: evaluation ---
+% ,  Arrows: evaluation ,
 \draw[arr] (merge) -- (tstr);
 \draw[arr] (tstr)  -- (qual);
 \draw[arr] (qual)  -- (priv);
 
-% --- Grouping boxes ---
+% ,  Grouping boxes ,
 \begin{scope}[on background layer]
   \node[grp, fit=(p00)(p01)(p01b), label=above:{\scriptsize Data preparation}] {};
   \node[grp, fit=(h0train)(h0gen), label=above:{\scriptsize Hour-0 model}] {};
@@ -192,11 +187,11 @@ Figure~\ref{fig:pipeline-overview} shows the end-to-end pipeline from raw MIMIC-
 
 \subsection{ForestFlow Architecture}
 
-Figure~\ref{fig:forestflow-arch} shows the ForestFlow backbone. At training time, for each of $n_t$ discrete time levels, a noise-augmented version of the target is constructed by interpolating between Gaussian noise $\mathbf{z}$ and the real target $\mathbf{x}$, then concatenated with the clean condition vector. An XGBoost regressor is fitted to predict the flow direction $\mathbf{u}_t = \mathbf{x} - \mathbf{z}$. At generation time, Euler integration steps backward from noise to data using the learned regressors.
+Figure~\ref{fig:forestflow-arch} shows how ForestFlow is instantiated in this system. The formal flow-matching equations are defined in Chapter~4; here the design point is implementation-facing: one regressor bank per time level, clean conditioning, and Euler rollout for generation.
 
-% ---------------------------------------------------------------------------
+% , , , , , , , , , , , , , , , , , , , , , , , , ,
 % Figure 2: ForestFlow backbone
-% ---------------------------------------------------------------------------
+% , , , , , , , , , , , , , , , , , , , , , , , , ,
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[scale=0.88, transform shape,
@@ -214,40 +209,40 @@ Figure~\ref{fig:forestflow-arch} shows the ForestFlow backbone. At training time
                   inner sep=4pt, fill=gray!5}
 ]
 
-% ---- Training path (left column) ----
+% , - Training path (left column) , -
 \node[blue]   (noise)  {Sample $\mathbf{z}\sim\mathcal{N}(0,I)$};
 \node[blue,   below=of noise]   (interp) {Interpolate: $\mathbf{x}_t=(1{-}t)\mathbf{z}+t\mathbf{x}$};
 \node[orange, below=of interp]  (concat) {Concat $[\mathbf{x}_t^{\text{noisy}} \mid \mathbf{c}_{\text{clean}}]$};
 \node[green,  below=of concat]  (xgb)    {XGBoost regressor fits $\hat{\mathbf{v}}_{t_k}$};
 \node[orange, below=of xgb]     (loss)   {Loss: $\|\hat{\mathbf{v}}_{t_k}-(\mathbf{x}-\mathbf{z})\|_2^2$};
 
-% ---- Time loop annotation ----
+% , - Time loop annotation , -
 \node[right=5mm of xgb, font=\scriptsize, text=gray] (timeann)
       {$\times\; n_t$ time levels};
 
-% ---- Sampling path (right column) ----
-\node[blue,   right=28mm of noise]   (znoise) {Start: $\hat{\mathbf{x}}_1\sim\mathcal{N}(0,I)$};
+% , - Sampling path (right column) , -
+\node[blue,   right=28mm of noise]   (znoise) {Start: $\hat{\mathbf{x}}_0\sim\mathcal{N}(0,I)$};
 \node[green,  below=of znoise]       (pred)   {Predict $\hat{\mathbf{v}}_{t_k}(\hat{\mathbf{x}}_k,\mathbf{c})$};
-\node[orange, below=of pred]         (euler)  {Euler step: $\hat{\mathbf{x}}_{k-1}=\hat{\mathbf{x}}_k+h\hat{\mathbf{v}}_{t_k}$};
-\node[blue,   below=of euler]        (out)    {Output: $\hat{\mathbf{x}}_0$ (decoded)};
+\node[orange, below=of pred]         (euler)  {Euler step: $\hat{\mathbf{x}}_{k+1}=\hat{\mathbf{x}}_k+h\hat{\mathbf{v}}_{t_k}$};
+\node[blue,   below=of euler]        (out)    {Output: $\hat{\mathbf{x}}_{n_t}$ (decoded)};
 
-% ---- Arrows: training ----
+% , - Arrows: training , -
 \draw[arr] (noise)  -- (interp);
 \draw[arr] (interp) -- (concat);
 \draw[arr] (concat) -- (xgb);
 \draw[arr] (xgb)    -- (loss);
 
-% ---- Arrows: sampling ----
+% , - Arrows: sampling , -
 \draw[arr] (znoise) -- (pred);
 \draw[arr] (pred)   -- (euler);
 \draw[arr] (euler)  to[out=0,in=0,looseness=2]
-           node[right,font=\scriptsize]{$k{=}n_t{\to}1$} (pred);
+           node[right,font=\scriptsize]{$k{=}0{\to}n_t{-}1$} (pred);
 \draw[arr] (euler)  -- (out);
 
-% ---- Training → Sampling arrow ----
+% , - Training → Sampling arrow , -
 \draw[darr] (xgb.east) -- node[above,font=\scriptsize]{stored regressors} (pred.west);
 
-% ---- Group boxes ----
+% , - Group boxes , -
 \begin{scope}[on background layer]
   \node[grp, fit=(noise)(interp)(concat)(xgb)(loss),
         label=above:{\scriptsize Training}] {};
@@ -262,11 +257,11 @@ Figure~\ref{fig:forestflow-arch} shows the ForestFlow backbone. At training time
 
 \subsection{HS3F Architecture}
 
-Figure~\ref{fig:hs3f-arch} shows the HS3F backbone. The key difference from ForestFlow is sequential feature-wise generation: features are produced one at a time in a fixed order, each conditioned on previously generated features. Continuous features use the same flow-matching regressor path as ForestFlow; categorical (multi-class) features are generated by an XGBoost classifier trained directly on the class label.
+Figure~\ref{fig:hs3f-arch} shows the HS3F system design. Chapter~4 defines the formal heterogeneous factorisation; this section focuses on architecture: type-routed heads, feature-wise left-to-right generation, and explicit prefix feedback during sampling.
 
-% ---------------------------------------------------------------------------
+% , , , , , , , , , , , , , , , , , , , , , , , , ,
 % Figure 3: HS3F backbone
-% ---------------------------------------------------------------------------
+% , , , , , , , , , , , , , , , , , , , , , , , , ,
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[scale=0.78, transform shape,
@@ -285,33 +280,33 @@ Figure~\ref{fig:hs3f-arch} shows the HS3F backbone. The key difference from Fore
                   inner sep=4pt, fill=gray!5}
 ]
 
-% ---- Shared input ----
+% , - Shared input , -
 \node[blue]   (cond)  {Condition $\mathbf{c} = [\mathbf{s},\, \mathbf{x}_{t-1}]$};
 
-% ---- Feature loop head (router) ----
+% , - Feature loop head (router) , -
 \node[orange, below=10mm of cond]  (router) {Feature $j$ router: type check};
 \node[right=3mm of router, font=\scriptsize, text=gray]
      (loopann) {for $j=1,\ldots,d_x$};
 
-% ---- Continuous branch ----
+% , - Continuous branch , -
 \node[green, below left=12mm and 12mm of router]  (flow)
      {Flow-matching regressor\\$\hat{v}_{t_k}(x_{t,j}\mid\mathbf{c},x_{t,<j})$};
 \node[green, below=of flow] (rk4)
      {RK4 integration $\to \hat{x}_{t,j}$};
 
-% ---- Categorical branch ----
+% , - Categorical branch , -
 \node[purple, below right=12mm and 12mm of router] (clf)
      {XGBoost classifier\\$\hat{p}(x_{t,j}\mid\mathbf{c},x_{t,<j})$};
 \node[purple, below=of clf] (sample)
      {Sample $\hat{x}_{t,j}\sim\hat{p}(\cdot)$};
 
-% ---- Accumulate ----
+% , - Accumulate , -
 \node[blue, below=20mm of router]  (accum)
      {Append $\hat{x}_{t,j}$ to generated prefix};
 \node[orange, below=of accum] (done)
      {All $d_x$ features generated: output $\hat{\mathbf{x}}_t$};
 
-% ---- Arrows ----
+% , - Arrows , -
 \draw[arr] (cond)   -- (router);
 \draw[arr] (router) -- node[left, font=\scriptsize]{continuous} (flow);
 \draw[arr] (router) -- node[right,font=\scriptsize]{categorical} (clf);
@@ -324,7 +319,7 @@ Figure~\ref{fig:hs3f-arch} shows the HS3F backbone. The key difference from Fore
 \draw[darr] (accum.west) to[out=180,in=180,looseness=1.4]
             node[left,font=\scriptsize]{feeds $x_{t,<j+1}$} (router.west);
 
-% ---- Group boxes ----
+% , - Group boxes , -
 \begin{scope}[on background layer]
   \node[grp, fit=(flow)(rk4), label=left:{\scriptsize Continuous head}] {};
   \node[grp, fit=(clf)(sample),  label=right:{\scriptsize Categorical head}] {};
@@ -337,38 +332,19 @@ Figure~\ref{fig:hs3f-arch} shows the HS3F backbone. The key difference from Fore
 
 \subsection{Backbone Selection}
 
-All major training entry points accept the flag \code{--model-type} with values \code{forest-flow} or \code{hs3f}; \code{hs3f} is the default.
+Backbone selection is exposed at training time, with HS3F as the default; operational invocation details are documented in the Implementation chapter.
 
-\subsection{ForestFlow Backbone}
+\subsection{ForestFlow Design Interface}
 
-The \code{ForestFlow} class in \code{src/synth_gen/models/forest\_flow.py} implements conditional flow matching with XGBoost regressors.
-Core interface:
-\begin{itemize}\tightlist
-    \item \code{fit(X\_target, X\_condition, feature\_types)},
-    \item \code{sample(n\_samples, X\_condition, random\_state)}.
-\end{itemize}
+ForestFlow consumes a target matrix, a clean condition matrix, and feature-type metadata, and emits synthetic targets in transformed coordinates.
+The implementation-level rule is simple: all target dimensions are routed through continuous flow regressors to keep interpolation arithmetic well defined.
+This keeps the training path uniform but can reduce categorical fidelity; that risk is evaluated in Chapter~7.
 
-Design details:
-\begin{enumerate}\tightlist
-    \item Time discretization into \code{nt} levels.
-    \item Noise duplication control via \code{n\_noise}.
-    \item Optional iterator path for memory-aware XGBoost training.
-    \item Conditional input formed as \code{[noisy\_target | clean\_condition]}.
-\end{enumerate}
+\subsection{HS3F Design Interface}
 
-Categorical typing logic is constrained by flow arithmetic: target dimensions that receive noise are forced to quantitative mode during training input assembly.
-
-\subsection{HS3F Backbone}
-
-The \code{HS3F} class in \code{src/synth_gen/models/hs3f.py} follows heterogeneous sequential generation \cite{akazan2024hs3f}:
-\begin{itemize}\tightlist
-    \item continuous targets: flow-matching regressors,
-    \item categorical targets: XGBoost classifiers with multinomial sampling,
-    \item left-to-right feature generation conditioned on previously generated features.
-\end{itemize}
-
-Continuous heads integrate the learned flow in time; categorical heads apply label remapping so that, when training on subsets of the data, class indices used during fitting align with those emitted at sampling time.
-This design is intended to mitigate the sparse-class-index failure mode common under subsampling.
+HS3F consumes the same target/condition matrices plus feature typing, and emits synthetic targets in transformed coordinates.
+Its implementation rule is to split continuous and categorical dimensions into separate heads and generate features left-to-right with prefix feedback.
+Label remapping is retained so classifier class indices stay consistent under subsampling; this prevents index mismatch failures during sampling.
 
 \subsection{Hour-0 + Autoregressive Coupling}
 
@@ -380,24 +356,8 @@ The architecture is intentionally two-stage:
 
 This decomposition separates structural initialization from transition dynamics more explicitly than a single model that must infer both jointly.
 
-%==============================================================================
-\section{Sweep-Centric System Design}
-%==============================================================================
-
-\subsection{Unified Hyperparameter Protocol}
-
-The sweep orchestrates paired training of the hour-0 and autoregressive models for each $(n_t, n_{\text{noise}})$ configuration so that synthetic rollouts use mutually consistent stage-one and stage-two parameters for that configuration.
-
-\subsection{Always-On Transformed Cache}
-
-Transformed autoregressive matrices and a schema-consistent real-quality reference sample are persisted under \code{models/sweep\_cache/transformed\_autoregressive/} to avoid repeating expensive transform work across experiment launches.
-
-Entries are treated as valid only when a content signature matches the current source table and target/condition index specification; signature fields and reload rules are defined in the sweep implementation (\code{scripts/run\_sweep.py}) to prevent stale reuse after schema or split changes.
-
-\subsection{Result Schema Stability}
-
-Sweep outputs are written to a single append-only table with a fixed column contract so that partial reruns merge cleanly and historical rows remain comparable across code revisions.
-The concrete column set is defined alongside the sweep driver implementation.
+\paragraph{Sweep-level design.}
+Sweep-level design, the hyperparameter protocol, transformed-matrix caching, and canonical result schema, is part of the operational pipeline rather than the generator architecture, and is specified in the Implementation chapter (see~\ref{sec:unified-sweep}).
 
 %==============================================================================
 \section{Design Rationale and Trade-offs}
@@ -420,7 +380,7 @@ Even with simplified encoding, inverse transformation remains important for:
 \subsection{Why Multi-Backbone Support?}
 
 Forest-Flow \cite{jolicoeur2023forest} remains a well-established baseline and compatibility path.
-HS3F \cite{akazan2024hs3f} is aligned with heterogeneous mixed-type generation in the cited work and is the default backbone in the current implementation.
+HS3F \cite{akazan2024hs3f} is the default backbone; its literature positioning is reviewed in Chapter~\ref{ch:background}.
 
 \subsection{Why Preserve Explicit Metadata Artifacts?}
 
@@ -430,3 +390,5 @@ Persisting split metadata and model type in pickled artifacts enables:
     \item reproducible sweep reruns,
     \item traceable migration between architecture revisions.
 \end{itemize}
+
+Having justified the system architecture and design trade-offs, the next chapter documents how these design choices were implemented and made reproducible.

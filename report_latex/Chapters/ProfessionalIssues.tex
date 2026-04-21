@@ -12,16 +12,16 @@ The legal baseline for this project is a combination of contractual governance (
 \begin{itemize}\tightlist
     \item no publication of row-level real patient records,
     \item controlled handling of credentialed source data,
-    \item clear separation between releasable artifacts (code, synthetic outputs, aggregate metrics) and restricted artifacts (real patient tables).
+    \item clear separation between releasable artefacts (code, synthetic outputs, aggregate metrics) and restricted artefacts (real patient tables).
 \end{itemize}
 
 This separation is reflected in the repository structure and ignore rules: large real/processed data paths are not committed by default, while code and reproducibility scripts are versioned.
 
 \subsection{UK Data-Protection Perspective}
 
-As this dissertation is produced in a UK academic setting, UK data-protection principles remain relevant to how risk is reasoned about, even when the project relies on a deidentified US-origin dataset. The Data Protection Act 2018 and UK GDPR research guidance emphasize safeguards, data minimisation, and restrictions on using research processing to make decisions about specific individuals \cite{dataProtectionAct2018,icoResearchSafeguards,icoDataMinimisation}.
+As this dissertation is produced in a UK academic setting, UK data-protection principles remain relevant to how risk is reasoned about, even when the project relies on a deidentified US-origin dataset. The Data Protection Act 2018 and UK GDPR research guidance emphasise safeguards, data minimisation, and restrictions on using research processing to make decisions about specific individuals \cite{dataProtectionAct2018,icoResearchSafeguards,icoDataMinimisation}. This framing also aligns with the UK GDPR research condition (Article 89), which requires appropriate technical and organisational safeguards when personal data are processed for scientific research \cite{icoResearchSafeguards}.
 
-For this project, the key implication is methodological: synthetic data should not be treated as ``automatically anonymous'' by default. Instead, disclosure risk must be evaluated empirically before any release claim. This aligns legal caution with technical reality.
+For this project, the key implication is methodological: synthetic data should not be treated as ``automatically anonymous'' by default. Disclosure risk must be evaluated empirically before any release claim. This chapter is aligned with the rest of the dissertation: the current results support feasibility research, not deployment or unrestricted release.
 
 \subsection{Release and Reuse Boundaries}
 
@@ -29,7 +29,7 @@ The most defensible legal posture for current outputs is:
 \begin{enumerate}\tightlist
     \item release code, methods, and aggregate evaluation summaries openly;
     \item release synthetic tabular samples only with explicit caveats and risk metrics;
-    \item prohibit any framing of outputs as clinical decision support artifacts.
+    \item prohibit any framing of outputs as clinical decision support artefacts.
 \end{enumerate}
 
 If future work uses identifiable UK clinical data, then additional controls would be mandatory (for example: explicit lawful basis, DPIA where required, and institutional ethics/governance approval) \cite{icoResearchSafeguards}.
@@ -40,15 +40,15 @@ If future work uses identifiable UK clinical data, then additional controls woul
 
 \subsection{Privacy Risk Beyond Deidentification}
 
-Recent work shows that synthetic health data can still leak training-set information under realistic attacks. Membership inference has been demonstrated empirically against synthetic health datasets \cite{zhang2022membership}, and broader benchmarking literature reports persistent utility--privacy trade-offs rather than a universally ``safe'' generator \cite{yan2022benchmarking}. A recent scoping review further finds that many studies still under-evaluate privacy risk in practice \cite{kaabachi2025scoping}.
+Recent work shows that synthetic health data can still leak training-set information under realistic attacks. Membership inference has been demonstrated empirically against synthetic health datasets \cite{zhang2022membership}, and broader benchmarking literature reports persistent utility--privacy trade-offs rather than a universally ``safe'' generator \cite{yan2022benchmarking}. A recent scoping review further finds that many studies still under-evaluate privacy risk in practice \cite{kaabachi2025scoping}. In this project, the membership-inference risk is assessed specifically for tree-based flow matching generators (HS3F and ForestFlow), using the DOMIAS-style proxy reported in the Evaluation chapter.
 
-In this project context, this means privacy claims should be conservative. Metrics such as DCR are useful diagnostics, but they should not be interpreted as sufficient legal anonymity proof on their own \cite{yao2025dcrdelusion}. This is why privacy testing is paired with adversarial-style membership checks in the implementation chapter.
+In this project context, this means privacy claims should be conservative. Metrics such as Distance to Closest Record (DCR) are useful diagnostics, but they should not be interpreted as sufficient legal anonymity proof on their own \cite{yao2025dcrdelusion}. This is why privacy testing is paired with adversarial-style membership checks in the implementation chapter.
 
 \subsection{Fairness, Representation, and Social Harm}
 
 Healthcare datasets encode historical and structural inequalities, and learning systems may reproduce or amplify them. A widely cited clinical risk-stratification case showed substantial racial disparity caused by an apparently reasonable prediction proxy \cite{obermeyer2019racialbias}. In synthetic-EHR generation itself, fairness is now an active research concern, with recent methods explicitly targeting bias reduction in downstream tasks \cite{ramachandranpillai2024btgan}.
 
-For this project, the social-risk implication is that ``overall realism'' (for example, good average KS or aggregate TSTR) is not enough. Subgroup behavior should be evaluated explicitly, because harm is often concentrated in minority cohorts rather than visible in global averages.
+For this project, the social-risk implication is that ``overall realism'' (for example, good average KS or aggregate TSTR) is not enough. Subgroup behaviour should be evaluated explicitly, because harm is often concentrated in minority cohorts rather than visible in global averages (the empirical minority-class collapse observed in this project is documented in Evaluation section~\ref{sec:mortality-tstr}). This matters for MIMIC-derived experiments because cohort composition is not demographically uniform, and predictive performance can differ materially across age, sex, and ethnicity subgroups when prevalence and care pathways differ.
 
 \subsection{Potential Misuse and Overclaiming}
 
@@ -65,7 +65,7 @@ Ethically, these risks are addressed by transparent reporting of limitations, ex
 \section{Professional Issues and BCS Alignment}
 %==============================================================================
 
-The BCS Code of Conduct \cite{bcsCodeConduct2022} requires duties to public interest, professional competence and integrity, relevant authority, and the profession. These four duties provide the organising framework for assessing this project's professional conduct. The 1972 BCS Code of Good Practice \cite{bcsCodeGoodPractice1972}, while predating modern computational healthcare, establishes foundational commitments to the public good and professional accountability that remain consistent with the current Code of Conduct; it is cited here as the historical precursor from which contemporary BCS standards descend, not as a primary normative source.
+The BCS Code of Conduct \cite{bcsCodeConduct2022} requires duties to public interest, professional competence and integrity, relevant authority, and the profession. These four duties provide the organising framework for assessing this project's professional conduct; the 1972 BCS Code of Good Practice \cite{bcsCodeGoodPractice1972} is cited as the historical precursor from which the current Code descends.
 
 \subsection{How BCS Principles Were Applied in This Project}
 
@@ -89,4 +89,4 @@ Current controls in this project include restricted-source-data handling, explic
     \item \textbf{Context shift risk:} methods validated on MIMIC-derived distributions may not transfer safely to other hospitals or populations.
 \end{enumerate}
 
-Accordingly, a responsible forward plan is to keep privacy and fairness testing as release gates, publish limitations with results, and avoid clinical deployment claims until external validation and governance requirements are met.
+Accordingly, a responsible forward plan is to keep privacy and fairness testing as release gates, publish limitations with results, and avoid clinical deployment claims until external validation and governance requirements are met. In UK deployments that use identifiable records, this should include a documented DPIA, Article 89 safeguard mapping, and explicit release criteria tied to both privacy and subgroup-equity thresholds before any external sharing.

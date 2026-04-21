@@ -1,11 +1,12 @@
 \chapter{Implementation}
+\label{ch:implementation}
 
 %==============================================================================
 \section{Traceability of Objectives to Evidence}
 %==============================================================================
 
-Software and systems requirements practice treats bidirectional traceability---from stakeholder needs through design to verification evidence---as a core quality activity \cite{ieee29148Requirements2018}.
-Table~\ref{tab:obj-trace} summarizes how the objectives of this thesis (hour-0 plus autoregressive ICU synthesis, mixed-type tabular handling, utility/distributional/privacy checks, reproducible logging) map to implementation anchors, evaluation quantities, and the sections below where those links are documented.
+Software and systems requirements practice treats bidirectional traceability, from stakeholder needs through design to verification evidence, as a core quality activity \cite{ieee29148Requirements2018}.
+Table~\ref{tab:obj-trace} summarises how the objectives of this thesis (hour-0 plus autoregressive ICU synthesis, mixed-type tabular handling, utility/distributional/privacy checks, reproducible logging) map to implementation anchors, evaluation quantities, and the sections below where those links are documented.
 
 \begin{table}[htbp]
 \centering
@@ -21,32 +22,32 @@ Table~\ref{tab:obj-trace} summarizes how the objectives of this thesis (hour-0 p
 Two-stage synthesis: IID hour~0 then autoregressive rows &
 Numbered scripts; \code{run\_sweep} trains both stages per config &
 Stage timings; end-to-end sweep rows &
-\S~\textbf{Operational Pipeline}; \S~\textbf{Unified Sweep Architecture} \\
+section \textbf{Operational Pipeline}; section \textbf{Unified Sweep Architecture} \\
 \midrule
 Mixed quantitative / categorical ICU features &
 \code{feature\_types} metadata; Forest-Flow vs HS3F paths; label remap in \code{sample()} &
 Task inputs after \code{inverse\_transform}; per-column KS on numerics &
-\S~\textbf{Categorical Typing}; \S~\textbf{Categorical Labels and Flow Integration}; \S~\textbf{Sampling and Reconstruction} \\
+section \textbf{Categorical Typing}; section \textbf{Categorical Labels and Flow Integration}; section \textbf{Sampling and Reconstruction} \\
 \midrule
 Downstream utility of synthetic cohorts &
 \code{tstr\_framework} multi-task loop &
 Per-task acc., F1, ROC-AUC (macro where noted) &
-\S~\textbf{Multi-Task TSTR}; \S~\textbf{Task Metrics}; Figures~\ref{fig:sweep-roc-heatmap}--\ref{fig:sweep-f1-lines} \\
+section \textbf{Multi-Task TSTR}; section \textbf{Task Metrics}; Figures~\ref{fig:sweep_mort_roc}--\ref{fig:sweep_mort_f1} \\
 \midrule
 Distributional fidelity beyond single-task scores &
 Sweep post-process: marginals, correlation gap, clinical bounds &
 $\overline{\mathrm{KS}}$, $\|\Delta C\|_F$, range-violation \% &
-\S~\textbf{Distributional Quality Metrics}; \S~\textbf{Empirical Outcomes from the Current Sweep} \\
+section \textbf{Distributional Quality Metrics}; section \textbf{Empirical Outcomes from the Hyperparameter Sweep} \\
 \midrule
 Privacy-preservation risk checks &
-\code{src/synth_gen/evaluation/privacy\_metrics.py} (DCR + membership attack) &
+\code{src/lexisflow/evaluation/privacy\_metrics.py} (DCR + membership attack) &
 DCR median/match rate; baseline/overfit scores; MIA ROC-AUC &
-\S~\textbf{Privacy Risk Metrics}; \S~\textbf{Key Implementation File Map} \\
+section \textbf{Privacy Risk Metrics}; section \textbf{Key Implementation File Map} \\
 \midrule
 Reproducibility and auditable experiment history &
 Seeds; artifact paths; canonical CSV schema; cache signatures; failure rows preserved &
 Logged metrics; \code{degenerate\_flag}; resumable \code{sweep\_results.csv} &
-\S~\textbf{Reproducibility and Reporting Conventions}; \S~\textbf{Unified Sweep Architecture} \\
+section \textbf{Reproducibility and Reporting Conventions}; section \textbf{Unified Sweep Architecture} \\
 \bottomrule
 \end{tabularx}
 \caption{Objective-to-evidence traceability for this implementation chapter (section titles refer to headings within this chapter).}
@@ -54,22 +55,23 @@ Logged metrics; \code{degenerate\_flag}; resumable \code{sweep\_results.csv} &
 \end{table}
 
 %==============================================================================
-\section{Operational Pipeline (Current)}
+\section{Operational Pipeline for Hyperparameter Sweep}
 %==============================================================================
 
 The current end-to-end workflow is implemented as numbered scripts with explicit artifacts:
 \begin{enumerate}\tightlist
-    \item \code{00\_prepare\_hour0\_data.py} and \code{00b\_fit\_hour0\_preprocessor.py}
+    \item \code{prepare\_hour0.py} and \code{fit\_hour0\_preprocessor.py}
           prepare and encode hour-0 training data.
-    \item \code{00c\_train\_hour0\_model.py} trains an IID generator.
-    \item \code{01\_preprocess\_data.py} creates autoregressive tabular rows and carves patient-disjoint train / test / holdout splits (\code{autoregressive\_data.csv}, \code{real\_test.csv}, \code{real\_holdout.csv}).
-    \item \code{01b\_fit\_preprocessor.py} fits the full-data autoregressive preprocessor on the training cohort.
-    \item \code{02\_train\_model.py} trains the autoregressive generator.
-    \item \code{03\_generate\_synthetic.py} loads model artifacts and exports synthetic samples.
+    \item \code{train\_hour0.py} trains an IID generator.
+    \item \code{prepare\_autoregressive.py} creates autoregressive tabular rows and carves patient-disjoint train / test / holdout splits (\code{autoregressive\_data.csv}, \code{real\_test.csv}, \code{real\_holdout.csv}).
+    \item \code{fit\_autoregressive\_preprocessor.py} fits the full-data autoregressive preprocessor on the training cohort.
+    \item \code{train\_autoregressive.py} trains the autoregressive generator.
+    \item \code{generate.py} loads model artifacts and exports synthetic samples.
     \item \code{run\_sweep.py} performs unified hour-0 + autoregressive hyperparameter search.
 \end{enumerate}
 
-The architecture is explicitly two-stage and backbone-selectable (\code{forest-flow} or \code{hs3f}, default \code{hs3f}). Standalone evaluation scripts (\code{04\_evaluate\_quality.py}, \code{05\_evaluate\_hour0\_model.py}) are also available for ad-hoc inspection of individual outputs; these are described in the User Guide appendix. In the sweep-centric workflow above, quality and TSTR evaluation are integrated directly into \code{run\_sweep.py}.
+The architecture is explicitly two-stage and backbone-selectable (\code{forest-flow} or \code{hs3f}, default \code{hs3f}). Quality and TSTR evaluation are integrated directly into \code{run\_sweep.py}; ad-hoc inspection of specific generated outputs is handled by the helpers in \code{synth\_gen.evaluation}. A dedicated matched-cell driver (\code{run\_backbone\_comparison.py}) executes the same data and metric pipeline for HS3F, ForestFlow, and CTGAN at a fixed comparison cell; results are reported in the Evaluation chapter (section~\ref{sec:backbone-comparison}).
+This structure was chosen so each sweep row is an auditable end-to-end experiment unit, which is why Chapter~7 can compare utility, fidelity, privacy, and runtime from one consistent log schema.
 
 %==============================================================================
 \section{Training Implementation Details}
@@ -77,22 +79,24 @@ The architecture is explicitly two-stage and backbone-selectable (\code{forest-f
 
 \subsection{Hour-0 IID Training}
 
-\code{00c\_train\_hour0\_model.py} loads \code{models/hour0\_preprocessor.pkl}, transforms all hour-0 rows, and fits an IID generator:
+\code{train\_hour0.py} loads \code{models/hour0\_preprocessor.pkl}, transforms all hour-0 rows, and fits an IID generator:
 \begin{equation}
 \hat{p}(\mathbf{z}_0), \quad \mathbf{z}_0=[\mathbf{s},\mathbf{x}_0].
 \end{equation}
 
 The script persists model metadata including \code{model\_type}, training hyperparameters, and preprocessor linkage.
+This stage exists to model initial-state realism separately from transition dynamics, which explains later findings where rollout quality and hour-0 plausibility diverge.
 
 \subsection{Autoregressive Training}
 
-\code{02\_train\_model.py} loads \code{models/preprocessor\_full.pkl}, transforms selected rows of \code{autoregressive\_data.csv}, and reconstructs split matrices via persisted indices:
+\code{train\_autoregressive.py} loads \code{models/preprocessor\_full.pkl}, transforms selected rows of \code{autoregressive\_data.csv}, and reconstructs split matrices via persisted indices:
 \begin{equation}
 X_{\text{target}} = X[:, \text{target\_indices}], \quad
 X_{\text{condition}} = X[:, \text{condition\_indices}].
 \end{equation}
 
 This removes the previous dependence on naive prefix slicing and is needed in the current implementation when transformed columns are type-grouped.
+The design choice prevents target/condition leakage from column-order assumptions, which directly supports the validity of the reported TSTR and fidelity metrics.
 
 \subsection{Categorical Typing Interface}
 
@@ -103,6 +107,7 @@ Both backbones receive \code{feature\_types} from preprocessor metadata:
 \end{itemize}
 
 Forest-Flow internally overrides noised target dimensions to quantitative mode (flow arithmetic constraint), while HS3F keeps explicit categorical heads \cite{akazan2024hs3f}.
+This was implemented to keep both backbones compatible with one data interface while preserving HS3F's mixed-type path, which is why later backbone differences are interpretable as modelling effects rather than pipeline mismatch.
 
 \subsection{Categorical Labels and Flow Integration (Codebase)}
 
@@ -110,8 +115,8 @@ For HS3F categorical dimensions, training remaps observed categories to contiguo
 The training remap yields contiguous class indexing under arbitrary subsampling without sparse multiclass labels at fit time.
 
 For continuous targets under Forest-Flow, sampling follows explicit first-order integration.
-Forest-Flow integrates the backward flow with explicit Euler updates (\code{X\_t += h * Y\_hat}) in \code{src/synth_gen/models/forest\_flow.py}.
-HS3F continuous dimensions default to \code{solver="rk4"} in \code{src/synth_gen/models/hs3f.py}, with \code{solver="euler"} available as an alternative.
+Forest-Flow integrates the backward flow with explicit Euler updates (\code{X\_t += h * Y\_hat}) in \code{src/lexisflow/models/forest\_flow.py}.
+HS3F continuous dimensions default to \code{solver="rk4"} in \code{src/lexisflow/models/hs3f.py}, with \code{solver="euler"} available as an alternative.
 
 %==============================================================================
 \section{Sampling and Reconstruction}
@@ -135,8 +140,9 @@ X_{\text{full}}[:,\text{condition\_indices}] \leftarrow X_{\text{condition}}.
 \end{equation}
 
 Then \code{inverse\_transform()} restores tabular values and category labels.
+This reconstruction step is required so all downstream evaluators operate in comparable tabular semantics rather than backbone-specific latent coordinates.
 
-\subsection{Post-Decode Clinical Normalization}
+\subsection{Post-Decode Clinical Normalisation}
 
 Known intervention indicators (e.g., \code{vent}, \code{vaso}) are explicitly clipped/rounded to $\{0,1\}$ before evaluation/export.
 This step is intended to restore discrete $\{0,1\}$ semantics for binary treatment flags after decode.
@@ -149,7 +155,7 @@ This step is intended to restore discrete $\{0,1\}$ semantics for binary treatme
 \label{sec:cohort-splits}
 
 All utility, fidelity, and privacy metrics are computed against real-data cohorts that are patient-disjoint from the generator's training cohort.
-At preprocessing time (\code{scripts/01\_preprocess\_data.py}), the autoregressive table is partitioned at the \code{subject\_id} level into three CSVs with an 80\,/\,10\,/\,10 split drawn from a fixed RNG seed so the partition is reproducible across runs:
+At preprocessing time (\code{scripts/prepare\_autoregressive.py}), the autoregressive table is partitioned at the \code{subject\_id} level into three CSVs with an 80\,/\,10\,/\,10 split drawn from a fixed RNG seed so the partition is reproducible across runs:
 \begin{itemize}\tightlist
     \item \code{data/processed/autoregressive\_data.csv} -- the training cohort (80\,\% of patients), the only file the generator ever sees.
     \item \code{data/processed/real\_test.csv} -- a TSTR / fidelity reference cohort (10\,\% of patients).
@@ -159,12 +165,12 @@ At preprocessing time (\code{scripts/01\_preprocess\_data.py}), the autoregressi
 Because the split is performed on \code{subject\_id}, no patient's timesteps ever span the training cohort and an evaluation cohort.
 Consequently:
 \begin{itemize}\tightlist
-    \item Multi-task TSTR (\S~\textbf{Multi-Task TSTR}) trains classifiers on synthetic data and tests them on sequences drawn from \code{real\_test.csv}; the real-trained baseline classifier is also fit and evaluated entirely within this disjoint cohort via an internal stratified split (\code{test\_size=0.3}).
+    \item Multi-task TSTR (section \textbf{Multi-Task TSTR}) trains classifiers on synthetic data and tests them on sequences drawn from \code{real\_test.csv}; the real-trained baseline classifier is also fit and evaluated entirely within this disjoint cohort via an internal stratified split (\code{test\_size=0.3}).
     \item The distributional fidelity metrics (KS, correlation Frobenius norm, range-violation rate) are computed against a sample of \code{real\_test.csv} rather than the training matrix, so they measure distributional recovery of \emph{unseen} rows rather than reproduction of the training set.
     \item The DCR overfitting-protection and DOMIAS-style membership-inference attack use \code{real\_holdout.csv} directly as the holdout reference, giving the overfitting-vs-generalisation comparison a meaningful signal even when the generator is expressive enough to memorise.
 \end{itemize}
 
-The split is materialised once per preprocessing run and referenced explicitly by \code{AutoregressiveInputs.real\_test\_path} and \code{AutoregressiveInputs.real\_holdout\_df} in \code{src/synth_gen/sweep/data\_prep.py}, ensuring the sweep driver, the matched backbone-comparison driver, and any future evaluation scripts consume byte-identical reference cohorts.
+The split is materialised once per preprocessing run and referenced explicitly by \code{AutoregressiveInputs.real\_test\_path} and \code{AutoregressiveInputs.real\_holdout\_df} in \code{src/lexisflow/sweep/data\_prep.py}, ensuring the sweep driver, the matched backbone-comparison driver, and any future evaluation scripts consume byte-identical reference cohorts.
 
 \subsection{Multi-Task TSTR}
 
@@ -214,13 +220,13 @@ For synthetic samples $\tilde{x}_i$ and real training set $\mathcal{D}_{\text{tr
 \begin{equation}
 \mathrm{DCR}(\tilde{x}_i,\mathcal{D}_{\text{train}})=\min_{x\in\mathcal{D}_{\text{train}}}\|\phi(\tilde{x}_i)-\phi(x)\|_2,
 \end{equation}
-with mixed-type embedding $\phi(\cdot)$ (min-max normalized numerics + one-hot categoricals).
+with mixed-type embedding $\phi(\cdot)$ (min-max normalised numerics + one-hot categoricals).
 Baseline protection follows the SDMetrics ratio form \cite{sdmetricsPrivacyDocs}:
 \begin{equation}
 \mathrm{Score}_{\text{baseline}}=\min\left(1,\frac{\mathrm{median}\,\mathrm{DCR}_{\text{synth}\rightarrow\text{train}}}{\mathrm{median}\,\mathrm{DCR}_{\text{random}\rightarrow\text{train}}}\right).
 \end{equation}
 
-Overfitting protection compares train-vs-holdout nearest-neighbor proximity for synthetic rows, where the holdout is the patient-disjoint \code{real\_holdout.csv} cohort defined in \S\ref{sec:cohort-splits}:
+Overfitting protection compares train-vs-holdout nearest-neighbour proximity for synthetic rows, where the holdout is the patient-disjoint \code{real\_holdout.csv} cohort defined in section~\ref{sec:cohort-splits}:
 \begin{equation}
 \mathrm{Score}_{\text{overfit}}=\min\left(1,\,2\left(1-\Pr\left[\mathrm{DCR}_{\text{synth}\rightarrow\text{train}} < \mathrm{DCR}_{\text{synth}\rightarrow\text{holdout}}\right]\right)\right).
 \end{equation}
@@ -229,7 +235,7 @@ Membership risk is quantified with a DOMIAS-style local overfitting score \cite{
 \begin{equation}
 s(x)=\log\frac{d_{\text{ref}}(x)+\epsilon}{d_{\text{synth}}(x)+\epsilon},
 \end{equation}
-where $d_{\text{synth}}$ is nearest-neighbor distance to synthetic data and $d_{\text{ref}}$ is distance to the patient-disjoint holdout cohort, so a non-zero attacker advantage can only reflect closeness to training patients rather than to the evaluation cohort itself.
+where $d_{\text{synth}}$ is nearest-neighbour distance to synthetic data and $d_{\text{ref}}$ is distance to the patient-disjoint holdout cohort, so a non-zero attacker advantage can only reflect closeness to training patients rather than to the evaluation cohort itself.
 Attack performance is reported via ROC-AUC (and attacker advantage) in the membership-inference paradigm \cite{shokri2017membership}.
 
 \paragraph{Interpretation guardrail.}
@@ -237,282 +243,24 @@ DCR-style proximity metrics are useful diagnostics but should not be treated as 
 
 \subsection{Empirical Outcomes from the Hyperparameter Sweep}
 
-The canonical log \code{results/sweep\_results.csv} covers a $5 \times 8 = 40$-cell grid over $n_t \in \{1,3,5,7,9\}$ and $n_{\text{noise}} \in \{1,3,5,7,9,11,13,15\}$.
-At the time of writing, $35$ cells are complete under the single-seed HS3F sweep and the remaining $5$ cells at $n_t=9$, $n_{\text{noise}} \in \{7,9,11,13,15\}$ are in progress; figures in this subsection therefore describe $35/40$ of the grid.
-Seed-level uncertainty columns (\code{*\_std}, \code{*\_ci95}, \code{trajectory\_seed\_count}) are part of the \code{SWEEP\_RESULT\_COLUMNS} schema but are populated only in the matched-cell backbone comparison (\S\ref{sec:backbone-comparison}); the main-grid results below are single-seed point estimates.
-When the multi-seed protocol is active, each trajectory-sampling seed in \code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} also drives the evaluator \code{random\_state} (real/synthetic train-test split, real-baseline classifier fit, and privacy-attack subsampling), so the reported \code{\_std} and \code{\_ci95} columns capture both trajectory-sampling variance and evaluator variance rather than trajectory-sampling variance alone.
-The following subsections present findings across four dimensions: downstream utility (TSTR), distributional quality, computational cost, and extrapolation analysis.
-All figures are generated by \code{scripts/plot\_sweep\_results.py} from the canonical sweep CSV.
+The canonical log \code{results/sweep\_results.csv} stores one normalised row per completed sweep cell over the configured $(n_t, n_{\text{noise}})$ grid. The schema includes metric columns, stage timings, error fields, and optional uncertainty fields (\code{*\_std}, \code{*\_ci95}, \code{trajectory\_seed\_count}) for multi-seed runs.
 
-\subsubsection{Downstream Utility: ROC-AUC}
+This chapter documents how those values are produced and persisted. The interpretation of utility, fidelity, privacy, and efficiency outcomes is intentionally centralised in Chapter~7.
 
-Figure~\ref{fig:sweep-roc-heatmap} shows the synthetic-model ROC-AUC across the $(n_t, n_{\text{noise}})$ grid, alongside the performance gap relative to the real-trained baseline ($\approx 0.83$).
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_heatmap.png}
-\caption{Left: synthetic-side TSTR ROC-AUC across the $(n_t, n_{\text{noise}})$ grid. Right: gap between synthetic and real model ROC-AUC (all values negative, indicating the synthetic model underperforms the real baseline). Best synthetic ROC-AUC of $\approx 0.74$ achieved at $(n_t{=}5, n_{\text{noise}}{=}11)$; runner-up cells at $(3,9)$ and $(7,15)$ reach $\approx 0.72$ and $\approx 0.70$ respectively.}
-\label{fig:sweep-roc-heatmap}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_line_charts.png}
-\caption{Effect of $n_t$ (left) and $n_{\text{noise}}$ (right) on synthetic ROC-AUC. Dashed line marks real-model baseline ($\approx 0.83$). ROC-AUC generally increases with $n_t$ up to $\approx 3$--$5$ before plateauing; the effect of $n_{\text{noise}}$ is noisy and configuration-dependent.}
-\label{fig:sweep-roc-lines}
-\end{figure}
-
-Key observations from Figures~\ref{fig:sweep-roc-heatmap}--\ref{fig:sweep-roc-lines}:
-\begin{itemize}\tightlist
-    \item The best synthetic ROC-AUC ($\approx 0.74$) is achieved at $(n_t{=}5, n_{\text{noise}}{=}11)$; strong runner-up cells cluster at intermediate $n_t \in \{3,5,7\}$ with $n_{\text{noise}} \in \{9,11,15\}$, where ROC-AUC falls in the $\approx 0.70$--$0.74$ band and the gap to the real model narrows to approximately $-0.09$ to $-0.13$.
-    \item Very low $n_t$ (e.g., $n_t=1$) consistently yields the poorest utility, with ROC-AUC in the $0.49$--$0.57$ range.
-    \item Increasing $n_{\text{noise}}$ beyond $\approx 9$ provides diminishing or negative returns for most $n_t$ values, suggesting overfitting of the noise-augmented training signal.
-    \item The line charts reveal high variance across configurations, with no single monotonic trend---indicating that the optimal $(n_t, n_{\text{noise}})$ pair is dataset-specific and not simply ``more is better.''
-\end{itemize}
-
-\subsubsection{Downstream Utility: Accuracy and F1}
-
-Figures~\ref{fig:sweep-acc-heatmap}--\ref{fig:sweep-f1-heatmap} present the same TSTR evaluation for accuracy and F1 score.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_accuracy_heatmap.png}
-\caption{Left: synthetic-side TSTR accuracy. Right: accuracy gap vs.\ real model ($\approx 0.90$). Accuracy tracks $n_t$ strongly: low $n_t$ values produce near-random accuracy ($< 0.20$), while $n_t \geq 5$ approaches the real baseline.}
-\label{fig:sweep-acc-heatmap}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_f1_heatmap.png}
-\caption{Left: synthetic-side TSTR F1 score. Right: F1 gap vs.\ real model ($\approx 0.51$). F1 remains low across the grid ($0.05$--$0.30$), confirming that class-imbalanced tasks are poorly served by the current generator even at higher $n_t$.}
-\label{fig:sweep-f1-heatmap}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_f1_line_charts.png}
-\caption{F1 score vs.\ $n_t$ (left) and $n_{\text{noise}}$ (right). Dashed line marks real-model F1 ($\approx 0.51$). F1 remains below $0.30$ across all configurations, with the best results at high $n_t$ and high $n_{\text{noise}}$.}
-\label{fig:sweep-f1-lines}
-\end{figure}
-
-These metrics reveal a diagnostic asymmetry:
-\begin{itemize}\tightlist
-    \item \textbf{Accuracy} is strongly sensitive to $n_t$: low $n_t$ produces near-random predictions ($< 0.20$), while $n_t \geq 5$ recovers accuracy to $0.86$--$0.90$, approaching the real-model baseline. This suggests that sufficient time-level discretization is necessary for the flow to capture the dominant class distribution.
-    \item \textbf{F1} remains persistently low ($0.05$--$0.30$) even at the best configurations, with a substantial gap to the real model ($\approx 0.51$). This pattern is consistent with a generator that reproduces majority-class structure but fails to preserve minority-class signal---a known challenge for tree-based flow matching under class imbalance \cite{jolicoeur2023forest}.
-    \item The divergence between accuracy (recovering to $\sim$0.90) and F1 (stuck at $\sim$0.20) at high $n_t$ strongly indicates that the synthetic distribution collapses toward the majority class rather than maintaining balanced class support.
-\end{itemize}
-
-\subsubsection{Distributional Quality Metrics}
-
-Figure~\ref{fig:sweep-quality} presents the three quality metrics across the sweep grid.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_quality_metrics.png}
-\caption{Quality metrics across the $(n_t, n_{\text{noise}})$ grid. Left: average KS statistic (lower is better). Centre: correlation Frobenius norm (lower is better). Right: clinical range violation percentage (lower is better). Higher $n_t$ generally improves all three metrics.}
-\label{fig:sweep-quality}
-\end{figure}
-
-\begin{itemize}\tightlist
-    \item \textbf{KS statistic.} Mean KS ranges from $0.736$ to $0.779$ across the completed grid cells. These are high absolute values: a mean KS of $\sim$0.75 indicates the synthetic marginal distributions are substantially displaced from the real ones across many features, well above the $0.10$--$0.20$ range typical of high-quality tabular generators in published benchmarks \cite{yan2022benchmarking}. Two factors partially explain the magnitude. First, the numerics-only average is computed on raw (unscaled) features whose marginals may differ sharply in location and scale from the unit-interval domain where KS is most sensitive; preprocessing artefacts and rare-value spikes in ICU measurements inflate the statistic. Second, binary intervention flags (e.g., ventilation, vasopressor) are transported as continuous flows during generation and clipped post-hoc, producing non-binary intermediate values that increase per-feature KS before rounding. Despite these mitigations, the values confirm that marginal fidelity remains a principal limitation of the current system. There is a weak trend toward lower KS at higher $n_t$ ($\approx 0.743$--$0.757$ at $n_t=9$ vs.\ $\approx 0.736$--$0.738$ at $n_t=1$); the small dynamic range suggests that marginal alignment is not primarily governed by time-level discretisation but by representational or conditioning constraints in the autoregressive scheme.
-    \item \textbf{Correlation Frobenius norm.} The norm ranges from $\approx 2.30$ to $3.26$, with the minimum at $(n_t{=}3, n_{\text{noise}}{=}3)$ ($\approx 2.295$). Unlike accuracy and range violations---which improve monotonically with $n_t$---correlation-Frobenius values are lowest along the $n_t=3$ row and remain in a narrow $2.41$--$2.63$ band for $n_t \in \{5,7,9\}$, with $n_t=1$ noticeably worse ($2.66$--$3.26$). Inter-feature dependency structure is therefore already well-recovered at moderate time discretisation and does not visibly sharpen further as $n_t$ increases; the gains from finer $n_t$ observed elsewhere are carried by range fidelity and utility rather than by the correlation-Frobenius axis.
-    \item \textbf{Clinical range violations.} Range violations drop substantially at higher $n_t$: at $n_t \geq 7$, most configurations achieve $\approx 14$--$19\%$ violations, compared with $\approx 15$--$29\%$ at $n_t \leq 3$. This represents a meaningful improvement and indicates that finer time discretization helps the flow dynamics better respect the support of the training distribution. Individual outliers exist (e.g., $9.33\%$ at one low-$n_t$ configuration), but the dominant trend favours higher $n_t$.
-\end{itemize}
-
-\subsubsection{Computational Cost}
-
-Figure~\ref{fig:sweep-time} shows training time as a function of both hyperparameters.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_training_time.png}
-\caption{Training time (minutes) vs.\ $n_t$ (left) and $n_{\text{noise}}$ (right). Cost is roughly proportional to the product $n_t \times n_{\text{noise}}$, consistent with the theoretical complexity $\mathcal{O}(n_t \cdot n_{\text{noise}} \cdot C_{\text{xgb}})$. Configurations at $n_t=9$, $n_{\text{noise}} \geq 7$ exceed two hours per run.}
-\label{fig:sweep-time}
-\end{figure}
-
-Training time scales roughly with the product $n_t \times n_{\text{noise}}$, consistent with the per-time-level XGBoost training loop. Typical configurations range from $\approx 5$ minutes ($n_t=1$, $n_{\text{noise}}=1$) to over three hours ($n_t=9$, $n_{\text{noise}}=15$). Combined with the quality and utility trends above, the most cost-effective configurations appear to lie in the $n_t \in \{5,7\}$, $n_{\text{noise}} \in \{5,9\}$ region, where utility and quality gains plateau before computational cost escalates sharply.
-
-\subsubsection{Extrapolation Analysis}
-
-To estimate diminishing returns beyond the tested grid, logarithmic curves ($y = a\ln(x) + b$) were fitted to the mean ROC-AUC aggregated over the complementary parameter (Figure~\ref{fig:sweep-extrap}).
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{sweep_extrapolation.png}
-\caption{Logarithmic extrapolation of mean ROC-AUC to $n_t=30$ and $n_{\text{noise}}=30$. The fitted curves suggest that even at $n_t=30$, the synthetic ROC-AUC would reach $\approx 0.70$, still below the real-model baseline ($\approx 0.83$). Extrapolation for $n_{\text{noise}}$ shows near-flat returns beyond $n_{\text{noise}} \approx 5$.}
-\label{fig:sweep-extrap}
-\end{figure}
-
-The extrapolation suggests that simply increasing $n_t$ or $n_{\text{noise}}$ is unlikely to close the gap to the real model:
-\begin{itemize}\tightlist
-    \item At $n_t=30$ (extrapolated), mean ROC-AUC is estimated at $\approx 0.70$---still $\approx 0.13$ below the real baseline.
-    \item The $n_{\text{noise}}$ curve is nearly flat beyond $n_{\text{noise}} \approx 5$, with an extrapolated value of $\approx 0.63$ at $n_{\text{noise}}=30$.
-\end{itemize}
-
-These trends indicate that the remaining utility gap is structural rather than a hyperparameter tuning artefact: the generator's representational capacity or the autoregressive factorisation itself may need architectural improvements to close the gap.
-
-\subsubsection{Backbone Comparison and CTGAN Baseline}
-\label{sec:backbone-comparison}
-
-To directly contrast the two tree-based backbones and a neural reference baseline, \code{scripts/run\_matched\_backbone\_comparison.py} executes HS3F, ForestFlow, and CTGAN/CRGAN at a shared cell $(n_t{=}5, n_{\text{noise}}{=}5)$ with identical training rows ($50{,}000$), synthetic sample budget ($50{,}000$), and three trajectory seeds per backbone. CTGAN is adapted through \code{src/synth_gen/models/ctgan\_adapter.py} into the same training and evaluation interface; it is trained on the transformed joint table and sampled without per-row autoregressive conditioning, providing a pragmatic lower-bound reference rather than a matched autoregressive competitor (see the \S\textbf{Baseline Scope and Interpretation} discussion in the Evaluation chapter). Table~\ref{tab:backbone-matched} summarises the matched-cell outcomes.
-
-\begin{table}[htbp]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabularx}{\textwidth}{@{}lrrr>{\raggedright\arraybackslash}X@{}}
-\toprule
-\textbf{Metric} & \textbf{HS3F} & \textbf{ForestFlow} & \textbf{CTGAN} & \textbf{Winner (3-seed)} \\
-\midrule
-Mortality balanced accuracy (TSTR) & 0.501 & \textbf{0.535} & 0.507 & ForestFlow (n.s.) \\
-Mortality ROC-AUC (TSTR)  & \textbf{0.672} & 0.619 & 0.497 & HS3F (n.s. vs FF, sig vs CTGAN) \\
-LOS macro-F1 (TSTR)       & \textbf{0.284} & 0.283 & 0.173 & HS3F \\
-Avg.\ KS (lower is better)        & \textbf{0.698} & 0.720 & 0.686 & CTGAN \\
-DCR baseline protection           & 1.000 & 1.000 & 1.000 & tie \\
-MIA ROC-AUC (near-chance good)    & 0.497 & 0.497 & 0.497 & tie \\
-Hour-0 train time (sec)           & 757.6 & 1119.2 & 1289.1 & HS3F \\
-AR train time (sec)               & \textbf{1436.6} & 2105.1 & 6728.3 & HS3F \\
-Total train time (sec)            & \textbf{2194.2} & 3224.2 & 8017.5 & HS3F \\
-\bottomrule
-\end{tabularx}
-\caption{Matched three-seed backbone comparison at $(n_t{=}5, n_{\text{noise}}{=}5)$. Source: \code{results/backbone\_comparison/backbone\_matched\_summary.csv} and \code{backbone\_baseline\_comparison.csv}. Mortality accuracy is reported in its \emph{balanced} form (mean of class-wise recalls) because ICU mortality is heavily class-imbalanced and the raw accuracy at a fixed 0.5 threshold mostly reflects majority-class prevalence rather than discrimination. CI95 half-widths are available in \code{backbone\_matched\_comparison.csv}; under the three-seed budget no two backbones are statistically separated on balanced accuracy, and the HS3F--CTGAN gap is the only statistically significant difference on ROC-AUC.}
-\label{tab:backbone-matched}
-\end{table}
-
-The same matched-cell run also populates the trajectory-level coherence columns of \code{SWEEP\_RESULT\_COLUMNS}, giving a four-metric view of how well per-patient temporal structure is preserved. These numbers, unlike the patient-level TSTR rows, separate HS3F from ForestFlow cleanly and therefore warrant a dedicated table (Table~\ref{tab:backbone-trajectory}).
-
-\begin{table}[htbp]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabularx}{\textwidth}{@{}lrrr>{\raggedright\arraybackslash}X@{}}
-\toprule
-\textbf{Trajectory-level metric} & \textbf{HS3F} & \textbf{ForestFlow} & \textbf{CTGAN} & \textbf{Winner (3-seed)} \\
-\midrule
-Autocorr.\ distance ($\downarrow$)                         & \textbf{0.223} & 0.441 & 0.447 & HS3F ($\sim$2$\times$ gap) \\
-Stay-length KS ($\downarrow$)                              & 0.545 & 0.545 & 0.545 & tie \\
-Transition smoothness ratio ($\to 1$)                      & 5.44           & \textbf{5.31} & 9.86  & HS3F/FF similar \\
-Temporal cross-feature corr.\ drift ($\downarrow$)         & \textbf{0.255} & 0.405 & 0.296 & HS3F \\
-\bottomrule
-\end{tabularx}
-\caption{Matched-cell trajectory-level coherence at $(n_t{=}5, n_{\text{noise}}{=}5)$, averaged over three trajectory seeds. Sources: \code{results/backbone\_comparison/sweep\_results\_\{hs3f,forest\_flow\_copy,ctgan\}.csv}. Stay-length KS is identical across backbones because all three generate fixed 48-hour windows; this metric confirms a shared structural limitation rather than discriminating between backbones. The two axes that measure lag-1 temporal structure---autocorrelation distance and cross-feature drift---favour HS3F by roughly $2\times$ over both alternatives.}
-\label{tab:backbone-trajectory}
-\end{table}
-
-\paragraph{What the matched cell says about the CTGAN baseline.}
-CTGAN's mortality ROC-AUC of $0.497$ is indistinguishable from a constant-score classifier---the standard interpretation of AUROC $\approx 0.5$---and its balanced accuracy ($0.507 \pm 0.020$) is similarly near chance. In the raw-accuracy column of the underlying CSV, CTGAN scores $0.622$, essentially tied with ForestFlow's $0.637$; however, under MIMIC's mortality class imbalance this raw figure mostly reflects majority-class (survived) prevalence rather than discrimination, which is exactly why Table~\ref{tab:backbone-matched} reports the balanced form. Once the majority-class bias is removed, CTGAN's classifier is no better than chance at ranking patients by mortality risk, despite its average-KS being the best of the three ($0.686$). The baseline is therefore failing for the right reason: it reproduces approximately-correct feature marginals (consistent with its best-in-class KS) but does not preserve the lagged-feature-to-outcome dependency structure a downstream classifier needs. This is consistent with the adapter being trained on the transformed joint table and sampled without per-row autoregressive conditioning, as flagged in the \S\textbf{Baseline Scope and Interpretation} disclaimer. The trajectory-level metrics reinforce this reading: CTGAN's transition smoothness ratio ($9.86$) is roughly double that of the tree-based backbones, so hour-to-hour transitions are correspondingly jumpier---a direct consequence of the missing per-row conditioning. The baseline is therefore informative in exactly the way a baseline should be: it demonstrates that the utility signal captured by patient-level TSTR ROC-AUC (and, equivalently, by balanced accuracy once calibration noise is absorbed into score ranking) is not trivially attainable by a generator that merely produces near-correct marginals.
-
-\paragraph{CTGAN hyperparameters and fairness of the comparison.}
-The CTGAN baseline is configured with the hyperparameters reported in the original paper \cite{xu2019ctgan} and exposed as library defaults in the \code{ctgan} package: a two-layer $256\text{-}256$ generator MLP, a two-layer $256\text{-}256$ discriminator MLP, embedding dimension $128$, $300$ training epochs, batch size $500$, Adam learning rate $2 \times 10^{-4}$ with weight decay $10^{-6}$, and PAC size $10$ (see \code{scripts/run\_sweep.py}, \code{CTGAN\_DEFAULT\_*}, exposed to \code{run\_matched\_backbone\_comparison.py} through the \code{--ctgan-*} CLI flags). Two small reproducibility points are worth noting: (i) when the requested PAC does not divide the batch size the adapter silently falls back to the largest valid divisor (no effect at $(500, 10)$), and (ii) PyTorch and OMP thread pools are pinned to a single thread via \code{torch.set\_num\_threads(1)} and \code{OMP\_NUM\_THREADS=1} so the training-time comparison is not biased by CTGAN exploiting more CPU threads than the XGBoost-based backbones. No CTGAN-specific tuning was attempted beyond the published defaults, so the comparison is against a standard out-of-the-box baseline rather than a hand-tuned one; if anything, this biases the comparison in CTGAN's favour by removing the possibility that the observed collapse is caused by hyperparameter misconfiguration.
-
-\paragraph{Compute cost versus utility.}
-The most striking feature of the matched-cell comparison is the inversion between computational cost and downstream utility. CTGAN is the most expensive model to train by a large margin: $8017$~s total wall-clock at $(n_t{=}5, n_{\text{noise}}{=}5)$, compared with $3224$~s for ForestFlow ($\approx 2.5\times$ slower than ForestFlow) and $2194$~s for HS3F ($\approx 3.7\times$ slower than HS3F). Despite consuming more compute than the two tree-based backbones combined, CTGAN produces the worst downstream utility on every TSTR axis examined at this cell: mortality ROC-AUC ($0.497$, significantly below HS3F's $0.672$ at three seeds), LOS macro-F1 ($0.173$, roughly $40\%$ lower than the $\approx 0.28$ achieved by both tree-based backbones), and transition smoothness ratio ($9.86$, roughly $2\times$ the HS3F/ForestFlow value). Balanced mortality accuracy is numerically close across all three backbones ($0.501$--$0.535$), but this near-chance clustering is itself the critique: the extra CTGAN wall-clock buys no measurable discrimination improvement over the cheaper tree-based alternatives. The longer training time is therefore not purchasing any measurable utility advantage. This reinforces rather than qualifies the ``Why HS3F'' decision developed below: HS3F wins the matched cell on ranking utility, trajectory coherence, training cost, and privacy parity, and the closest neural baseline at standard hyperparameters loses decisively on every utility axis despite consuming nearly four times the wall-clock of HS3F.
-
-\paragraph{Interpreting the HS3F--ForestFlow discrimination profile.}
-On the balanced-accuracy row of Table~\ref{tab:backbone-matched}, all three backbones cluster near chance: HS3F $0.501 \pm 0.012$, CTGAN $0.507 \pm 0.020$, ForestFlow $0.535 \pm 0.048$. The nominal ForestFlow advantage overlaps HS3F's confidence interval and is not statistically significant at three seeds. On ROC-AUC the ordering reverses---HS3F $0.672$ vs.\ ForestFlow $0.619$---and with CI95 half-widths of $\approx 0.021$ (HS3F) and $\approx 0.077$ (ForestFlow) from \code{backbone\_matched\_comparison.csv} the tree-based gap is again not statistically significant, while the HS3F--CTGAN gap on ROC-AUC is. The honest reading of the mortality row is therefore: (1) no backbone produces a downstream classifier that reliably discriminates mortality under the balanced-accuracy lens; (2) HS3F's ROC-AUC lead over CTGAN is real, its ROC-AUC lead over ForestFlow is suggestive but not significant at three seeds; (3) LOS macro-F1 is statistically tied between HS3F and ForestFlow ($0.284$ vs.\ $0.283$) and significantly above CTGAN ($0.173$). Patient-level utility at this cell is therefore an \emph{incremental} win for HS3F on ranking metrics rather than a categorical one; the decisive separation between HS3F and ForestFlow appears in the trajectory-level metrics discussed next.
-
-\paragraph{Where HS3F does separate from ForestFlow: temporal coherence.}
-The matched-cell trajectory-level metrics in Table~\ref{tab:backbone-trajectory} separate the two tree-based backbones more decisively than the patient-level TSTR row does. HS3F's autocorrelation distance ($0.22$) is roughly half of ForestFlow's ($0.44$), and its temporal cross-feature correlation drift ($0.26$) is likewise the lowest of the three. Both metrics are direct measurements of whether per-patient lag-1 temporal structure is preserved, both are computed on the same matched-cell synthetic cohort, and both use the same three-seed averaging, so the comparison is not confounded by sampling differences. The plausible mechanism follows from the backbone design. HS3F generates intervention flags (e.g.\ ventilation, vasopressors) and categorical admission variables through explicit classifier heads, so at step $j+1$ of the feature-wise autoregressive chain the conditioning vector contains cleanly-typed previously-generated features; ForestFlow transports the same discrete features as continuous flows and rounds post-hoc, so the conditioning vector that drives transition generation contains continuous intermediate values that round-trip through the discretization boundary. A $2\times$ increase in autocorrelation distance for ForestFlow, measured on identical patients and seeds, is exactly the signal the design hypothesis predicts this round-trip would produce. This is the strongest positive evidence for HS3F's architectural choice on our data.
-
-\paragraph{Privacy verdict.}
-All three generators achieve DCR baseline-protection $= 1.0$ under the SDMetrics ceiling, zero exact-match synthetic records (\code{dcr\_exact\_match\_rate} $= 0$), and MIA ROC-AUC $\approx 0.497$ (indistinguishable from chance at three seeds). No configuration shows gross memorisation at this cell, and the privacy picture is effectively a tie across HS3F, ForestFlow, and CTGAN; the compute-cost picture is separately covered in the paragraph above.
-
-\paragraph{Why HS3F is the primary backbone for the main grid.}
-Taken together, the matched-cell evidence at $(n_t{=}5, n_{\text{noise}}{=}5)$ is what motivates using HS3F as the primary backbone for the main hyperparameter sweep:
-\begin{itemize}\tightlist
-    \item \textbf{Temporal coherence.} Two of the four trajectory-level metrics (autocorrelation distance, cross-feature drift) favour HS3F by roughly $2\times$ over ForestFlow; the other two are tied or within seed noise.
-    \item \textbf{Ranking utility.} HS3F's mortality ROC-AUC ($0.672$) is the highest of the three; under three seeds the HS3F--ForestFlow gap is not statistically significant, but the HS3F--CTGAN gap is. LOS macro-F1 is tied with ForestFlow.
-    \item \textbf{Architectural alignment to the feature schema.} HS3F's explicit categorical heads are designed for a mixed continuous/binary/categorical feature set (binary intervention flags, categorical admission codes). ForestFlow's all-continuous flow requires post-hoc clipping of discrete features, and the measured $2\times$ increase in autocorrelation distance is consistent with this round-trip introducing hour-to-hour transition noise.
-    \item \textbf{Computational cost.} HS3F trains $\approx 32\%$ faster than ForestFlow and $\approx 3.7\times$ faster than CTGAN at this cell. Across a $40$-cell grid this compounds into a decisive sweep-feasibility advantage.
-    \item \textbf{Privacy parity.} Proximity (DCR) and membership-inference (DOMIAS-style) diagnostics are indistinguishable across backbones, so HS3F's utility and cost advantages are not bought at a measured privacy cost.
-\end{itemize}
-
-\paragraph{Caveats on the backbone decision.}
-The backbone-axis evidence rests on a single matched $(n_t, n_{\text{noise}})$ cell with three trajectory seeds. The HS3F main grid is in progress; the ForestFlow and CTGAN full grids are not run. The HS3F--ForestFlow ROC-AUC gap at this cell is not statistically significant, and the backbone ordering on other cells may differ. Main-grid conclusions below (\S\textbf{Empirical Outcomes from the Hyperparameter Sweep}) are therefore HS3F-specific by construction; claims transfer to ForestFlow or CTGAN only under the matched-cell comparison. Extending the three-seed matched comparison to the full grid is flagged in \code{STATUS\_TRACKER.md}; the CSV-level artefacts (\code{results/backbone\_comparison/sweep\_results\_\{hs3f,forest\_flow\_copy,ctgan\}.csv}) already carry the full schema and are ready for the next regeneration pass.
-
-\subsubsection{Trajectory-Level Coherence Metrics}
+\paragraph{Trajectory-Level Coherence Metrics}
 \label{sec:trajectory-coherence}
 
-The trajectory-level metrics defined in the Evaluation chapter (autocorrelation distance, stay-length KS, transition smoothness ratio, temporal cross-feature correlation drift) are implemented in \code{src/synth_gen/evaluation/trajectory\_metrics.py} and integrated into \code{run\_sweep.py}, with dedicated unit coverage in \code{src/synth_gen/evaluation/tests/test\_trajectory\_metrics.py}. Matched-cell numerical values for all three backbones at $(n_t{=}5, n_{\text{noise}}{=}5)$ appear in Table~\ref{tab:backbone-trajectory}. The main grid \code{results/sweep\_results.csv} predates the trajectory-column additions, so a full-grid sweep of these metrics is deferred to the next canonical regeneration (tracked in \code{STATUS\_TRACKER.md} under ``Matched backbone comparison'' and ``Statistical reliability''). Implementation correctness is independently established by the unit tests, which verify:
+The trajectory-level metrics defined in Chapter~7 (autocorrelation distance, stay-length KS, transition smoothness ratio, temporal cross-feature drift) are implemented in \code{src/lexisflow/evaluation/trajectory\_metrics.py} and integrated into \code{run\_sweep.py}, with dedicated unit coverage in \code{src/lexisflow/evaluation/tests/test\_trajectory\_metrics.py}. Implementation correctness is established by tests that verify:
 \begin{itemize}\tightlist
     \item zero values when real and synthetic trajectories are identical (sanity bound);
     \item monotonic degradation as synthetic trajectories are perturbed with progressively larger noise;
     \item stable behaviour when trajectory lengths fall below the minimum window (short trajectories are excluded rather than causing NaNs).
 \end{itemize}
-Full-grid numerical outcomes will appear in the final thesis results table once regeneration completes; the present chapter already documents the design, integration, and matched-cell numerical output of these metrics, so the claim ``temporal coherence is evaluated'' is supported at both the implementation and the matched-cell empirical level.
-
-\paragraph{Summary and cautious interpretation.}
-The expanded sweep reveals clear trends that the pilot was too small to surface:
-(1) $n_t$ is the dominant hyperparameter for utility and quality, with diminishing returns beyond $\approx 5$--$7$;
-(2) $n_{\text{noise}}$ has a weaker and more configuration-dependent effect;
-(3) the accuracy--F1 divergence at high $n_t$ confirms minority-class collapse as the primary failure mode;
-(4) range violations improve substantially at higher $n_t$ (from $\sim$30\% to $\sim$14\%);
-(5) the remaining utility gap appears structural rather than hyperparameter-limited.
-These main-grid results are single-backbone (HS3F) and single-dataset, so they support trend identification but not definitive performance claims; the three-seed matched-cell backbone comparison in \S\ref{sec:backbone-comparison} partially addresses the backbone-axis limitation, but a full-grid matched sweep remains outstanding.
-
-%==============================================================================
-\section{Limitations and Threats to Validity}
-%==============================================================================
-
-Empirical software-engineering guidance groups threats into construct, internal, external, and conclusion validity \cite{runesonHost2009CaseStudyGuidelines}.
-The items below are stated directly: they bound what the current implementation and sweep can claim.
-
-\subsection{Construct validity}
-
-\paragraph{Operationalization of ``utility'' and ``fidelity''.}
-Multi-task TSTR (logistic baselines in \code{tstr\_framework}) and the sweep's marginal/correlation/range metrics are \emph{proxies} for clinical usefulness and distributional faithfulness.
-They still omit temporal consistency across full stays, calibration of predicted risks, and expert review of clinically implausible joint patterns.
-\textbf{Mitigations in code:} two complementary patient-level tasks (mortality, LOS) reduce single-score overfitting; KS, $\|\Delta C\|_F$, and range violations deliberately stress different failure modes; post-decode clipping is intended to align known flags with binary semantics (\S~\textbf{Post-Decode Clinical Normalization}); and privacy is now monitored with DCR-based diagnostics plus DOMIAS-style MIA scoring (\S~\textbf{Privacy Risk Metrics}).
-\textbf{Gaps:} no multivariate two-sample tests, no clinician validation loop, and no full adaptive/shadow-model MIA battery beyond the nearest-neighbor DOMIAS-style attack proxy. Additionally, binary intervention flags (\code{vent}, \code{vaso}) are transported as continuous flows during HS3F generation and rounded post-hoc; the fraction of generated values that fell outside $\{0,1\}$ before clipping is not currently tracked, leaving one source of KS inflation and plausibility degradation unmeasured.
-
-\paragraph{Label and prevalence semantics.}
-Encoded categories and rare events may dominate apparent TSTR scores (e.g., accuracy under imbalance).
-\textbf{Mitigations:} macro-F1 and ROC-AUC on LOS; explicit discussion of F1 collapse in the sweep results (Figures~\ref{fig:sweep-f1-heatmap}--\ref{fig:sweep-f1-lines}).
-\textbf{Gaps:} prevalence-aware baselines and stratified reporting are not yet first-class in the sweep output.
-
-\subsection{Internal validity}
-
-\paragraph{Confounding by configuration and compute.}
-The sweep varies both $n_t$ and $n_{\text{noise}}$, but wall-clock differences (e.g., training time varies from $\approx 5$ minutes to over three hours) can couple ``better'' metrics with unequal optimisation budgets unless training is stopped by a common criterion.
-\textbf{Mitigations:} per-stage timings and degeneracy annotation are logged; interpretation already warns against ranking on this CSV alone.
-\textbf{Gaps:} no matched early-stopping or compute-matched comparison protocol in the sweep.
-
-\paragraph{Determinism versus accidental reuse.}
-Seeds and artifact paths support repeat runs, but the transformed-data cache (\code{\_build\_cache\_signature}, \code{\_load\_transformed\_cache}) can silently reuse large arrays when signatures match---correct when inputs are unchanged, hazardous if a user assumes a fresh transform after a partial edit that does not bump mtime or path.
-\textbf{Mitigations:} signature includes path, size, mtime, column names, and index vectors; cache miss overwrites.
-\textbf{Gaps:} \code{run\_sweep.py} exposes \code{--refresh-transformed-cache}, but cache-refresh decisions are still manual; semantic changes that preserve file metadata can be missed without explicit operator checks.
-
-\paragraph{Evaluation leakage and split stability.}
-TSTR and quality metrics depend on how real/synthetic splits are formed; any overlap between training generator inputs and evaluation cohorts would inflate utility.
-\textbf{Mitigations:} the chapter ties evaluation to the implemented split conventions in \code{tstr\_framework} and preprocessor indices.
-\textbf{Gaps:} formal independence guarantees across hour-0, autoregressive training, and TSTR splits should be audited line-by-line for each experiment script version.
-
-\subsection{External validity}
-
-\paragraph{Single database and pipeline.}
-Results apply to MIMIC-derived hour-0 plus autoregressive ICU rows, the chosen feature set, and the Forest-Flow/HS3F backbones implemented in this work---not to ward workflows, other charting systems, or primary-care EHRs.
-\textbf{Mitigations:} two-stage design and backbone selection document the scope of the generative family.
-\textbf{Gaps:} no cross-cohort or cross-hospital replication; preprocessor and item definitions remain cohort-specific.
-
-\paragraph{Synthetic sample size and conditioning.}
-Conditional generation reuses real conditioning rows in sweep mode; this anchors context but limits exploration of counterfactual trajectories and may hide defects in the conditional model when the condition distribution is narrow.
-\textbf{Gaps:} ablations over synthetic cohort size and purely synthetic conditioning chains are future work.
-
-\subsection{Conclusion validity}
-
-\paragraph{Statistical power and multiplicity.}
-The expanded sweep ($\approx 40$ configurations) now repeats each cell across three trajectory seeds and records mean, sample standard deviation, and $95\%$ confidence-interval half-widths for key utility, quality, and privacy metrics.
-Scanning several metrics and tasks still raises multiplicity concerns, and with only three seeds per cell the intervals should be treated as uncertainty indicators rather than definitive significance tests.
-\textbf{Mitigations:} resumable \code{sweep\_results.csv}, failure rows preserved, uncertainty columns exported, and overlap-aware interpretation rather than deterministic point-estimate ranking.
-\textbf{Gaps:} larger seed counts, bootstrap CIs, and multiple-comparison discipline are still future work in \code{run\_sweep.py}.
-
-\paragraph{Threshold-based degeneracy.}
-\code{degenerate\_flag} encodes a fixed heuristic on near-random utility; it reduces false confidence but can miss structured failure (good average AUROC with pathological calibration) or flag borderline runs arbitrarily.
-\textbf{Mitigations:} flagged rows are retained, not dropped.
-\textbf{Gaps:} sensitivity analysis for thresholds and correlation with distributional metrics is outstanding.
+Numerical results and interpretation are reported in Chapter~7.
 
 %==============================================================================
 \section{Unified Sweep Architecture}
+\label{sec:unified-sweep}
 %==============================================================================
 
 \subsection{Per-Configuration Lifecycle}
@@ -523,10 +271,10 @@ For each $(n_t, n_{\text{noise}})$ pair, \code{run\_sweep.py} executes:
     \item Train autoregressive model,
     \item Generate synthetic samples,
     \item Run multi-task TSTR + quality metrics,
-    \item Append one normalized CSV row.
+    \item Append one normalised CSV row.
 \end{enumerate}
 
-Each finished configuration is normalized to the canonical header list \code{SWEEP\_RESULT\_COLUMNS} before append, so partial reruns do not corrupt \code{results/sweep\_results.csv}.
+Each finished configuration is normalised to the canonical header list \code{SWEEP\_RESULT\_COLUMNS} before append, so partial reruns do not corrupt \code{results/sweep\_results.csv}.
 The row payload includes utility metrics, quality metrics, timing fields for both model stages, and \code{degenerate\_flag}.
 
 \subsection{Always-On Transformed Cache}
@@ -577,37 +325,16 @@ Our implementation is grounded in:
     \item XGBoost as the core function approximator \cite{chen2016xgboost}.
 \end{itemize}
 
-Common synthetic tabular/time-series baselines include CTGAN \cite{xu2019ctgan}, TimeGAN \cite{yoon2019timegan}, TabDDPM \cite{kotelnikov2023tabddpm}, TabSyn \cite{zhang2024tabsyn}, and SDV ecosystem tooling \cite{sdvproject}. In this project, CTGAN/CRGAN is integrated through \code{src/synth_gen/models/ctgan\_adapter.py} as a pragmatic lower-bound/reference baseline inside the same data and metric pipeline; numerical results from the matched three-seed comparison at $(n_t{=}5, n_{\text{noise}}{=}5)$ appear in \S\ref{sec:backbone-comparison}. However, CTGAN is not implemented as a fully autoregressive per-row conditioned generator: adding that behaviour would require an architecture change (new sequential conditioning/generation design), which is outside the thesis scope. Transformer-based generators such as GReaT \cite{borisov2023great} and REaLTabFormer \cite{solatorio2023realtabformer} remain future comparison points.
+Common synthetic tabular/time-series baselines include CTGAN \cite{xu2019ctgan}, TimeGAN \cite{yoon2019timegan}, TabDDPM \cite{kotelnikov2023tabddpm}, TabSyn \cite{zhang2024tabsyn}, and SDV ecosystem tooling \cite{sdvproject}. In this project, CTGAN is integrated through \code{src/lexisflow/models/ctgan\_adapter.py} as a pragmatic lower-bound/reference baseline inside the same data and metric pipeline. Transformer-based generators such as GReaT \cite{borisov2023great} and REaLTabFormer \cite{solatorio2023realtabformer} remain future comparison points.
 
 %==============================================================================
-\section{Key Implementation File Map}
+\section{Key Implementation Modules}
 %==============================================================================
 
-\begin{table}[htbp]
-\centering
-\small
-\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X@{}}
-\toprule
-\textbf{File} & \textbf{Role in Current Architecture} \\
-\midrule
-\code{src/synth_gen/data/transformers.py} & Tabular preprocessor (label encoding, inverse decode, feature typing metadata). \\
-\midrule
-\code{src/synth_gen/models/forest\_flow.py} & Flow-matching tree backbone with conditional clean/noisy split and Euler sampling path. \\
-\midrule
-\code{src/synth_gen/models/hs3f.py} & Heterogeneous sequential generator (continuous flow + categorical classifiers, RK4 option). \\
-\midrule
-\code{src/synth_gen/evaluation/tstr\_framework.py} & Unified multi-task TSTR tasks and evaluation loop. \\
-\midrule
-\code{src/synth_gen/evaluation/privacy\_metrics.py} & Privacy evaluation module (DCR summaries, baseline/overfit protection scores, DOMIAS-style membership inference attack). \\
-\midrule
-\code{scripts/01b\_fit\_preprocessor.py} & Full-data preprocessor fit; persists semantic columns and transformed index splits. \\
-\midrule
-\code{scripts/02\_train\_model.py} & Autoregressive model training with index-based target/condition extraction. \\
-\midrule
-\code{scripts/00c\_train\_hour0\_model.py} & IID hour-0 training entry point with backbone selection. \\
-\midrule
-\code{scripts/run\_sweep.py} & Unified sweep orchestrator (hour-0 + autoregressive, cache, metrics, resumable CSV). \\
-\bottomrule
-\end{tabularx}
-\caption{Key implementation files referenced in this chapter}
-\end{table}
+The implementation centres on a small set of modules, each tied to a reported outcome:
+\begin{itemize}\tightlist
+    \item \code{src/lexisflow/data/transformers.py}: preprocessing/inverse decoding that governs whether generated rows can be evaluated in clinically meaningful units.
+    \item \code{src/lexisflow/models/\{forest\_flow,hs3f\}.py}: backbone-specific training/sampling logic that drives fidelity and utility differences.
+    \item \code{src/lexisflow/evaluation/\{tstr\_framework,privacy\_metrics,trajectory\_metrics\}.py}: metric implementations that produce the evidence interpreted in Chapter~7.
+    \item \code{scripts/\{fit\_autoregressive\_preprocessor,train\_hour0,train\_autoregressive,run\_sweep\}.py}: orchestration layer that makes runs reproducible and sweep results comparable.
+\end{itemize}

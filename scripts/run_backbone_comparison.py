@@ -3,7 +3,7 @@
 
 All heavy lifting — data preparation, generator training, trajectory sampling,
 TSTR/quality/privacy evaluation, per-seed uncertainty aggregation, and CSV row
-assembly — lives in :mod:`synth_gen.sweep`. This driver only orchestrates the
+assembly — lives in :mod:`lexisflow.sweep`. This driver only orchestrates the
 three backbones, packages the delta/winner comparison, and writes the compact
 thesis artefacts.
 
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from synth_gen.sweep import (
+from lexisflow.sweep import (
     AutoregressiveInputs,
     Hour0Inputs,
     SWEEP_RESULT_COLUMNS,

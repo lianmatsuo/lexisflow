@@ -39,7 +39,7 @@ TSTR (Train on Synthetic, Test on Real) is a powerful utility-based evaluation t
 
 **Implementation:**
 ```python
-# src/synth_gen/mortality/los_classifier.py
+# src/lexisflow/mortality/los_classifier.py
 class LOSClassifier:
     def __init__(self):
         self.model = LogisticRegression(multi_class='multinomial')
@@ -161,7 +161,7 @@ model.fit(X_features, vent_duration)
 ## Unified TSTR Framework
 
 ### Proposed Architecture
-**File:** `src/synth_gen/evaluation/tstr_framework.py`
+**File:** `src/lexisflow/evaluation/tstr_framework.py`
 
 ```python
 class TSTRTask(ABC):

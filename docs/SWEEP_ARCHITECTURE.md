@@ -830,7 +830,7 @@ uv run python scripts/run_sweep.py
 1. Exact batch sizes (last batch can't be smaller)
 2. Proper iterator protocol implementation
 
-**Solution**: Modified `FlowMatchingDataIterator` in `src/synth_gen/models/iterator.py`:
+**Solution**: Modified `FlowMatchingDataIterator` in `src/lexisflow/models/iterator.py`:
 ```python
 def __iter__(self):
     while True:  # Infinite loop

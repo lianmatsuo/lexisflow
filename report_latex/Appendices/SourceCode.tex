@@ -22,14 +22,14 @@ The complete source code is submitted alongside this report. The table below pro
 \toprule
 \textbf{File} & \textbf{Description} \\
 \midrule
-\multicolumn{2}{l}{\textbf{Data Processing (\code{src/synth_gen/data/})}} \\
+\multicolumn{2}{l}{\textbf{Data Processing (\code{src/lexisflow/data/})}} \\
 \midrule
 \code{transformers.py} & Tabular preprocessor: label encoding for categoricals, binary rounding, streaming \code{partial\_fit()}, and inverse transform for human-readable export. \\
 \code{autoregressive.py} & Autoregressive data preparation: lag-1 feature creation, static/dynamic column separation, biophysical aggregation. \\
 \code{feature\_utils.py} & Centralised feature-type detection: identifies numeric, binary, and categorical columns using clinical domain knowledge. \\
 \code{loaders.py} & Data loading utilities for MIMIC-III derived CSV files. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Generative Models (\code{src/synth_gen/models/})}} \\
+\multicolumn{2}{l}{\textbf{Generative Models (\code{src/lexisflow/models/})}} \\
 \midrule
 \code{forest\_flow.py} & ForestFlow backbone: conditional flow matching with XGBoost regressors at discrete time levels, Euler sampling, clean-condition principle. \\
 \code{hs3f.py} & HS3F backbone: heterogeneous sequential feature generation with flow-matching regressors for continuous and XGBoost classifiers for categorical targets. \\
@@ -37,7 +37,7 @@ The complete source code is submitted alongside this report. The table below pro
 \code{sampling.py} & Autoregressive trajectory sampling: generates multi-hour patient trajectories by iteratively conditioning on previously generated states. \\
 \code{utils.py} & Shared model helper functions. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Evaluation (\code{src/synth_gen/evaluation/})}} \\
+\multicolumn{2}{l}{\textbf{Evaluation (\code{src/lexisflow/evaluation/})}} \\
 \midrule
 \code{quality\_metrics.py} & Distributional quality: KS statistics, correlation Frobenius norm, clinical range violation rates. \\
 \code{privacy\_metrics.py} & Privacy diagnostics: DCR summaries, baseline/overfitting protection scores, DOMIAS-style membership inference attack. \\
@@ -45,26 +45,27 @@ The complete source code is submitted alongside this report. The table below pro
 \code{tstr.py} & Single-task TSTR evaluation (mortality prediction). \\
 \code{visualizations.py} & Metric visualisation utilities. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Clinical Prediction (\code{src/synth_gen/mortality/})}} \\
+\multicolumn{2}{l}{\textbf{Clinical Prediction (\code{src/lexisflow/mortality/})}} \\
 \midrule
 \code{model.py} & Mortality classifier: logistic regression baseline for TSTR evaluation. \\
 \code{preprocessor.py} & TSTR preprocessor: variable-length sequence padding for patient-level classification. \\
 \midrule
 \multicolumn{2}{l}{\textbf{Pipeline Scripts (\code{scripts/})}} \\
 \midrule
-\code{00\_prepare\_hour0\_data.py} & Extract hour-0 patient states from MIMIC-III tables. \\
-\code{00b\_fit\_hour0\_preprocessor.py} & Fit IID preprocessor on hour-0 data. \\
-\code{00c\_train\_hour0\_model.py} & Train IID hour-0 generative model. \\
-\code{01\_preprocess\_data.py} & Create autoregressive training table with lag features. \\
-\code{01b\_fit\_preprocessor.py} & Fit preprocessor on full autoregressive dataset (streaming). \\
-\code{02\_train\_model.py} & Train autoregressive model (ForestFlow or HS3F). \\
-\code{03\_generate\_synthetic.py} & Generate synthetic patient trajectories. \\
-\code{04\_evaluate\_quality.py} & Compute distributional quality metrics. \\
-\code{05\_evaluate\_hour0\_model.py} & Evaluate hour-0 model quality. \\
-\code{run\_sweep.py} & Unified hyperparameter sweep with caching and resumability. \\
-\code{plot\_sweep\_results.py} & Visualise sweep results. \\
+\code{prepare\_hour0.py} & Extract hour-0 patient states from MIMIC-III tables. \\
+\code{fit\_hour0\_preprocessor.py} & Fit IID preprocessor on hour-0 data. \\
+\code{train\_hour0.py} & Train IID hour-0 generative model. \\
+\code{prepare\_autoregressive.py} & Create autoregressive training table with lag features. \\
+\code{fit\_autoregressive\_preprocessor.py} & Fit preprocessor on full autoregressive dataset (streaming). \\
+\code{train\_autoregressive.py} & Train autoregressive model (ForestFlow or HS3F). \\
+\code{generate.py} & Generate synthetic patient trajectories. \\
+\code{run\_sweep.py} & Unified hyperparameter sweep with caching, resumability, and integrated TSTR/quality/privacy evaluation. \\
+\code{run\_backbone\_comparison.py} & Three-seed matched-cell HS3F vs.\ ForestFlow vs.\ CTGAN comparison. \\
+\code{analyze\_sweep.py} & Visualise sweep results (heatmaps, line charts, extrapolation). \\
+\code{analyze\_column\_coverage.py} & Report per-column missingness / coverage on the MIMIC-III training table. \\
+\code{analyze\_column\_removal.py} & Build column-removal recommendations for the preprocessor. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Unit Tests (\code{src/synth_gen/*/tests/})}} \\
+\multicolumn{2}{l}{\textbf{Unit Tests (\code{src/lexisflow/*/tests/})}} \\
 \midrule
 \code{test\_autoregressive.py} & Tests for autoregressive transformation and lag feature creation. \\
 \code{test\_feature\_utils.py} & Tests for feature-type detection utilities. \\

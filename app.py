@@ -1,801 +1,349 @@
-import streamlit as st
-import subprocess
+"""Gradio app: pick a sweep hour-0 model (or real hour-0 data), roll it forward
+through the autoregressive model, view the trajectories, and run TSTR.
+
+Run:
+    uv run python app.py
+"""
+
+from __future__ import annotations
+
+import pickle
+import re
 import sys
+import types
 from pathlib import Path
-import os
+
+import gradio as gr
+import numpy as np
 import pandas as pd
 
-# Page configuration
-st.set_page_config(
-    page_title="MIMIC-III Data Analysis",
-    page_icon="🏥",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+import lexisflow
+import lexisflow.data
+import lexisflow.data.transformers as _transformers
+import lexisflow.models
+import lexisflow.models.forest_flow as _forest_flow
+import lexisflow.models.hs3f as _hs3f
+from lexisflow.evaluation import MortalityTask, evaluate_tstr_multi_task
+from lexisflow.models import sample_trajectory
 
-# Custom CSS for better styling
-st.markdown(
+# --- Legacy import shims -----------------------------------------------------
+# Older pickles reference `packages.models.hs3f`, `src.forest_flow.*`, and
+# `synth_gen.*` (pre-rename). Redirect all to current module locations.
+for legacy, target in [
+    ("packages", types.ModuleType("packages")),
+    ("packages.models", types.ModuleType("packages.models")),
+    ("packages.models.hs3f", _hs3f),
+    ("packages.models.forest_flow", _forest_flow),
+    ("src", types.ModuleType("src")),
+    ("src.forest_flow", types.ModuleType("src.forest_flow")),
+    ("src.forest_flow.preprocessing", _transformers),
+    ("src.forest_flow.model", _forest_flow),
+    ("src.forest_flow.hs3f", _hs3f),
+    ("synth_gen", lexisflow),
+    ("synth_gen.data", lexisflow.data),
+    ("synth_gen.data.transformers", _transformers),
+    ("synth_gen.models", lexisflow.models),
+    ("synth_gen.models.forest_flow", _forest_flow),
+    ("synth_gen.models.hs3f", _hs3f),
+]:
+    sys.modules.setdefault(legacy, target)
+
+# --- Paths -------------------------------------------------------------------
+ROOT = Path(__file__).parent
+SWEEP_DIR = ROOT / "artifacts" / "sweep"
+AR_MODEL_PATH = ROOT / "artifacts" / "autoregressive_forest_flow.pkl"
+AR_PREP_PATH = ROOT / "artifacts" / "preprocessor_full.pkl"
+HOUR0_PREP_PATH = ROOT / "artifacts" / "hour0_preprocessor.pkl"
+REAL_TEST_PATH = ROOT / "data" / "processed" / "real_test.csv"
+
+
+# --- Loaders (cached via module-level singletons) ----------------------------
+def _pickle_load(p: Path):
+    with open(p, "rb") as f:
+        return pickle.load(f)
+
+
+_AR_CACHE: dict | None = None
+_HOUR0_PREP_CACHE: dict | None = None
+
+
+def load_ar_bundle() -> dict:
+    global _AR_CACHE
+    if _AR_CACHE is None:
+        ar_model = _pickle_load(AR_MODEL_PATH)
+        if isinstance(ar_model, dict) and "model" in ar_model:
+            ar_model = ar_model["model"]
+        prep = _pickle_load(AR_PREP_PATH)
+        _AR_CACHE = {"model": ar_model, **prep}
+    return _AR_CACHE
+
+
+def load_hour0_prep() -> dict:
+    global _HOUR0_PREP_CACHE
+    if _HOUR0_PREP_CACHE is None:
+        _HOUR0_PREP_CACHE = _pickle_load(HOUR0_PREP_PATH)
+    return _HOUR0_PREP_CACHE
+
+
+def list_sweep_models() -> list[tuple[str, str]]:
+    """Return list of (label, absolute_path) for sweep hour-0 models."""
+    rows: list[tuple[str, str, int, int]] = []
+    pat = re.compile(r"hour0_nt(\d+)_noise(\d+)\.pkl$")
+    for p in sorted(SWEEP_DIR.glob("*.pkl")):
+        m = pat.search(p.name)
+        if not m:
+            continue
+        nt, noise = int(m.group(1)), int(m.group(2))
+        label = f"nt={nt:<3d} noise={noise}   ({p.name})"
+        rows.append((label, str(p), nt, noise))
+    rows.sort(key=lambda r: (r[2], r[3]))
+    return [(label, path) for label, path, _, _ in rows]
+
+
+# --- Hour-0 sourcing ---------------------------------------------------------
+def sample_hour0_from_model(model_path: str, n: int, seed: int) -> pd.DataFrame:
+    """Generate n initial patient states from a sweep hour-0 model."""
+    artifact = _pickle_load(Path(model_path))
+    model = artifact["model"]
+    hour0_prep = load_hour0_prep()
+    preprocessor = hour0_prep["preprocessor"]
+    X = model.sample(n_samples=n, X_condition=None)
+    df = preprocessor.inverse_transform(np.asarray(X))
+    df = df.reset_index(drop=True)
+    return df
+
+
+def sample_hour0_from_real(n: int, seed: int) -> pd.DataFrame:
+    """Sample n real hour-0 rows from the held-out test set."""
+    df = pd.read_csv(REAL_TEST_PATH)
+    if "hours_in" in df.columns:
+        df = df[df["hours_in"] == 0]
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(df), size=min(n, len(df)), replace=False)
+    return df.iloc[idx].reset_index(drop=True)
+
+
+# --- Trajectory generation ---------------------------------------------------
+def _build_ar_init_dataframe(df_hour0: pd.DataFrame, ar: dict) -> pd.DataFrame:
+    """Build a DataFrame with all AR columns (target + condition) from hour-0 data.
+
+    Lag1 features are seeded from the corresponding hour-0 target values; missing
+    columns are filled with 0.
     """
-    <style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #1f77b4;
-        color: white;
-        font-weight: bold;
-    }
-    .status-box {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    </style>
-""",
-    unsafe_allow_html=True,
-)
+    target_cols: list[str] = ar["target_cols"]
+    condition_cols: list[str] = ar["condition_cols"]
+    all_cols: list[str] = ar["all_cols"]
 
-# Title
-st.markdown(
-    '<h1 class="main-header">🏥 MIMIC-III Data Analysis Dashboard</h1>',
-    unsafe_allow_html=True,
-)
+    out = pd.DataFrame(index=range(len(df_hour0)))
+    for col in target_cols:
+        out[col] = df_hour0[col] if col in df_hour0.columns else 0.0
 
-# Sidebar
-with st.sidebar:
-    st.header("📊 Navigation")
-    st.markdown("---")
+    for col in condition_cols:
+        if col.endswith("_lag1"):
+            base = col[: -len("_lag1")]
+            if base in df_hour0.columns:
+                out[col] = df_hour0[base].values
+            else:
+                out[col] = 0.0
+        else:
+            out[col] = df_hour0[col] if col in df_hour0.columns else 0.0
 
-    # Data source selection
-    st.subheader("📁 Data Source Selection")
+    return out[all_cols]
 
-    mimic_dir = Path("data/mimic-iii-clinical-database-1.4")
-    mimic_combined_path = mimic_dir / "combined" / "mimic_iii_combined.parquet"
 
-    # Helper function to get best available file (Parquet preferred)
-    def get_table_path(table_name):
-        """Get table path, preferring Parquet over CSV."""
-        parquet_path = mimic_dir / "parquet" / f"{table_name}.parquet"
-        csv_path = mimic_dir / f"{table_name}.csv"
-        if parquet_path.exists():
-            return parquet_path
-        elif csv_path.exists():
-            return csv_path
+def generate_trajectories(
+    df_hour0: pd.DataFrame,
+    n_timesteps: int,
+    seed: int,
+) -> pd.DataFrame:
+    ar = load_ar_bundle()
+    preprocessor = ar["preprocessor"]
+    target_cols: list[str] = ar["target_cols"]
+    condition_cols: list[str] = ar["condition_cols"]
+    target_indices = ar["target_indices"]
+
+    static_cols = [c for c in condition_cols if not c.endswith("_lag1")]
+
+    df_init = _build_ar_init_dataframe(df_hour0, ar)
+    X_full = preprocessor.transform(df_init)
+
+    initial_state = X_full[:, target_indices]
+
+    if static_cols:
+        all_cols_idx = {c: i for i, c in enumerate(ar["all_cols"])}
+        static_positions = [all_cols_idx[c] for c in static_cols]
+        static_features = X_full[:, static_positions]
+    else:
+        static_features = None
+
+    trajectories = sample_trajectory(
+        model=ar["model"],
+        preprocessor=preprocessor,
+        static_features=static_features,
+        n_trajectories=len(df_hour0),
+        max_hours=n_timesteps,
+        target_cols=target_cols,
+        condition_cols=condition_cols,
+        static_cols=static_cols if static_cols else None,
+        initial_state=initial_state,
+        random_state=seed,
+        verbose=False,
+    )
+
+    frames = []
+    for i, t_df in enumerate(trajectories):
+        t_df = t_df.copy()
+        t_df.insert(0, "subject_id", f"synth_{i}")
+        if "timestep" in t_df.columns and "hours_in" not in t_df.columns:
+            t_df = t_df.rename(columns={"timestep": "hours_in"})
+        frames.append(t_df)
+    flat = pd.concat(frames, ignore_index=True)
+    return flat
+
+
+# --- UI callbacks ------------------------------------------------------------
+SWEEP_MODELS = list_sweep_models()
+SWEEP_LABELS = [label for label, _ in SWEEP_MODELS]
+LABEL_TO_PATH = dict(SWEEP_MODELS)
+
+
+def on_generate(
+    source: str, model_label: str, n_patients: int, n_timesteps: int, seed: int
+):
+    try:
+        n_patients = int(n_patients)
+        n_timesteps = int(n_timesteps)
+        seed = int(seed)
+        if source == "Sweep hour-0 model":
+            if not model_label or model_label not in LABEL_TO_PATH:
+                return None, "Select a sweep model.", None, None
+            df_h0 = sample_hour0_from_model(
+                LABEL_TO_PATH[model_label], n_patients, seed
+            )
+        else:
+            df_h0 = sample_hour0_from_real(n_patients, seed)
+
+        synth_df = generate_trajectories(df_h0, n_timesteps, seed)
+        status = (
+            f"Generated {synth_df['subject_id'].nunique()} patients "
+            f"× {n_timesteps} hours = {len(synth_df):,} rows, "
+            f"{synth_df.shape[1]} columns."
+        )
+        preview = synth_df.head(200)
+        subj_choices = sorted(synth_df["subject_id"].unique().tolist())
+        return (
+            synth_df,
+            status,
+            preview,
+            gr.Dropdown(
+                choices=subj_choices, value=subj_choices[0] if subj_choices else None
+            ),
+        )
+    except Exception as e:
+        return None, f"Error: {type(e).__name__}: {e}", None, None
+
+
+def on_view_patient(synth_df: pd.DataFrame | None, subject_id: str | None):
+    if synth_df is None or subject_id is None:
         return None
+    sub = synth_df[synth_df["subject_id"] == subject_id]
+    return sub.reset_index(drop=True)
 
-    # Available tables (base names without extension)
-    available_tables = {
-        "ADMISSIONS": "ADMISSIONS",
-        "PATIENTS": "PATIENTS",
-        "ICUSTAYS": "ICUSTAYS",
-        "SERVICES": "SERVICES",
-        "TRANSFERS": "TRANSFERS",
-        "DIAGNOSES_ICD": "DIAGNOSES_ICD",
-        "PROCEDURES_ICD": "PROCEDURES_ICD",
-        "CPTEVENTS": "CPTEVENTS",
-        "DRGCODES": "DRGCODES",
-        "PRESCRIPTIONS": "PRESCRIPTIONS",
-        "CALLOUT": "CALLOUT",
-        "LABEVENTS": "LABEVENTS",
-        "OUTPUTEVENTS": "OUTPUTEVENTS",
-        "MICROBIOLOGYEVENTS": "MICROBIOLOGYEVENTS",
-    }
 
-    # Check which tables exist (either Parquet or CSV)
-    existing_tables = {
-        name: base_name
-        for name, base_name in available_tables.items()
-        if get_table_path(base_name) is not None
-    }
-
-    # Combined table option
-    use_combined = st.checkbox("Use Combined Table", value=mimic_combined_path.exists())
-
-    if use_combined and mimic_combined_path.exists():
-        st.success("✓ Combined dataset selected")
-        selected_tables = []
-    else:
-        # Multi-select for individual tables
-        selected_table_names = st.multiselect(
-            "Select Tables",
-            options=list(existing_tables.keys()),
-            default=["ADMISSIONS"] if "ADMISSIONS" in existing_tables else [],
-            help="Select one or more tables to analyze",
+def on_run_tstr(synth_df: pd.DataFrame | None):
+    if synth_df is None or len(synth_df) == 0:
+        return pd.DataFrame([{"error": "Generate data first."}])
+    try:
+        real_df = pd.read_csv(REAL_TEST_PATH)
+        task = MortalityTask(use_sequence_model=True)
+        results = evaluate_tstr_multi_task(
+            synth_df=synth_df,
+            real_df=real_df,
+            tasks=[task],
+            test_size=0.3,
+            verbose=False,
         )
-        selected_tables = [
-            get_table_path(existing_tables[name]) for name in selected_table_names
-        ]
-        selected_tables = [
-            t for t in selected_tables if t is not None
-        ]  # Filter None values
+        rows = []
+        for task_name, metrics in results.items():
+            for k, v in metrics.items():
+                rows.append({"task": task_name, "metric": k, "value": _fmt(v)})
+        return pd.DataFrame(rows)
+    except Exception as e:
+        return pd.DataFrame([{"error": f"{type(e).__name__}: {e}"}])
 
-    # Store selection in session state
-    st.session_state["use_combined"] = use_combined
-    st.session_state["selected_tables"] = selected_tables
-    st.session_state["mimic_combined_path"] = mimic_combined_path
 
-    # Show selection summary
-    if use_combined and mimic_combined_path.exists():
-        st.info("📊 Selected: Combined Table")
-    elif selected_tables:
-        st.info(f"📊 Selected: {len(selected_tables)} table(s)")
-        for table in selected_tables[:3]:  # Show first 3
-            st.caption(f"  • {table.name}")
-        if len(selected_tables) > 3:
-            st.caption(f"  ... and {len(selected_tables) - 3} more")
-    else:
-        st.warning("⚠ No tables selected")
+def _fmt(v) -> str:
+    try:
+        if isinstance(v, float):
+            return f"{v:.4f}"
+        return str(v)
+    except Exception:
+        return str(v)
 
-    st.markdown("---")
 
-    # Output directories
-    st.subheader("📂 Output Directories")
-    correlation_dir = Path("eda/correlation_stats")
-    anomaly_dir = Path("eda/anomaly_stats")
+# --- UI ----------------------------------------------------------------------
+with gr.Blocks(title="LexisFlow Explorer") as demo:
+    gr.Markdown(
+        "# LexisFlow Explorer\n"
+        "Pick a hour-0 source, roll trajectories forward through the autoregressive "
+        "model, inspect patients, and run TSTR against the real held-out test set."
+    )
 
-    if correlation_dir.exists():
-        st.success(
-            f"✓ Correlation stats: {len(list(correlation_dir.glob('*.png')))} files"
+    synth_state = gr.State(value=None)
+
+    with gr.Tab("1. Generate"):
+        source = gr.Radio(
+            choices=["Sweep hour-0 model", "Real hour-0 data"],
+            value="Sweep hour-0 model",
+            label="Hour-0 source",
         )
-    else:
-        st.info("No correlation stats yet")
-
-    if anomaly_dir.exists():
-        st.success(f"✓ Anomaly stats: {len(list(anomaly_dir.glob('*.png')))} files")
-    else:
-        st.info("No anomaly stats yet")
-
-# Main content tabs
-tab1, tab2 = st.tabs(["📈 Correlation Statistics", "🔍 Anomaly Detection"])
-
-# Tab 1: Correlation Statistics
-with tab1:
-    st.header("Correlation Statistics Analysis")
-    st.markdown("""
-    This analysis generates correlation matrices and association measures:
-    - **Pearson, Spearman, Kendall** correlations for numeric variables
-    - **Cramer's V** for categorical associations
-    - **Theil's U** for asymmetric predictability
-    - **ANOVA/Kruskal-Wallis** for categorical → numerical relationships
-    """)
-
-    col1, col2 = st.columns([1, 3])
-
-    with col1:
-        st.subheader("Actions")
-        run_correlation = st.button(
-            "🚀 Run Correlation Analysis",
-            type="primary",
-            use_container_width=True,
-            key="run_correlation",
+        model_dropdown = gr.Dropdown(
+            choices=SWEEP_LABELS,
+            value=SWEEP_LABELS[0] if SWEEP_LABELS else None,
+            label="Sweep model",
+            interactive=True,
+        )
+        with gr.Row():
+            n_patients = gr.Slider(5, 500, value=25, step=5, label="# patients")
+            n_timesteps = gr.Slider(
+                2, 48, value=10, step=1, label="# timesteps (hours)"
+            )
+            seed = gr.Number(value=42, label="Seed", precision=0)
+        gen_btn = gr.Button("Generate trajectories", variant="primary")
+        status = gr.Markdown()
+        preview_table = gr.Dataframe(
+            label="Preview (first 200 rows)", interactive=False, wrap=True
         )
 
-        if run_correlation:
-            # Check if data is selected
-            if (
-                st.session_state.get("use_combined")
-                and st.session_state.get("mimic_combined_path").exists()
-            ):
-                data_source = str(st.session_state["mimic_combined_path"])
-            elif st.session_state.get("selected_tables"):
-                data_source = st.session_state["selected_tables"]
-            else:
-                st.error("Please select at least one table or the combined table")
-                st.stop()
+        def _toggle_model(choice):
+            return gr.Dropdown(interactive=(choice == "Sweep hour-0 model"))
 
-            try:
-                # Load and prepare data
-                if isinstance(data_source, list):
-                    # Multiple tables selected - combine them
-                    dfs = []
-                    for table_path in data_source:
-                        path = Path(table_path)
-                        # Prefer Parquet if available, fallback to CSV
-                        if path.suffix == ".parquet":
-                            df = pd.read_parquet(path)
-                        else:
-                            df = pd.read_csv(path, low_memory=False)
-                        dfs.append(df)
-                    # Simple merge on common columns (SUBJECT_ID, HADM_ID, etc.)
-                    combined_df = dfs[0]
-                    for df in dfs[1:]:
-                        # Find common columns for merging
-                        common_cols = set(combined_df.columns) & set(df.columns)
-                        if "SUBJECT_ID" in common_cols and "HADM_ID" in common_cols:
-                            combined_df = combined_df.merge(
-                                df,
-                                on=["SUBJECT_ID", "HADM_ID"],
-                                how="outer",
-                                suffixes=("", "_new"),
-                            )
-                        elif "SUBJECT_ID" in common_cols:
-                            combined_df = combined_df.merge(
-                                df, on="SUBJECT_ID", how="outer", suffixes=("", "_new")
-                            )
-                        else:
-                            combined_df = pd.concat([combined_df, df], axis=1)
+        source.change(_toggle_model, inputs=source, outputs=model_dropdown)
 
-                    # Save temporary file
-                    temp_file = Path("temp_correlation_data.parquet")
-                    combined_df.to_parquet(temp_file)
-                    data_source = str(temp_file)
-
-                # Run the script with data source
-                # Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                status_text.info("🔄 Starting correlation analysis...")
-                progress_bar.progress(10)
-
-                # Run with unbuffered output
-                env = os.environ.copy()
-                env["PYTHONUNBUFFERED"] = "1"
-
-                # Start subprocess with real-time output capture
-                import threading
-                import queue
-
-                process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-u",
-                        "scripts/correlation_stats.py",
-                        "--data",
-                        data_source,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    cwd=os.getcwd(),
-                    env=env,
-                    bufsize=1,
-                )
-
-                # Track progress based on output
-                stdout_lines = []
-                stderr_lines = []
-                progress_steps = {"numeric": 30, "cramer": 50, "theil": 70, "anova": 90}
-
-                output_queue = queue.Queue()
-
-                def read_output(pipe, queue, is_stderr=False):
-                    for line in iter(pipe.readline, ""):
-                        queue.put(("stderr" if is_stderr else "stdout", line))
-                    pipe.close()
-
-                stdout_thread = threading.Thread(
-                    target=read_output, args=(process.stdout, output_queue)
-                )
-                stderr_thread = threading.Thread(
-                    target=read_output, args=(process.stderr, output_queue, True)
-                )
-                stdout_thread.start()
-                stderr_thread.start()
-
-                # Update progress based on output
-                while process.poll() is None:
-                    try:
-                        source, line = output_queue.get(timeout=0.1)
-                        if source == "stdout":
-                            stdout_lines.append(line)
-                            # Update progress based on keywords
-                            line_lower = line.lower()
-                            line_stripped = line.strip()
-
-                            # Show detailed progress messages
-                            if "creating visualization" in line_lower:
-                                # Extract visualization name
-                                if "numeric correlations" in line_lower:
-                                    progress_bar.progress(progress_steps["numeric"])
-                                    status_text.info(
-                                        "🎨 Creating visualization: Numeric Correlations (Pearson, Spearman, Kendall)"
-                                    )
-                                elif "cramer" in line_lower:
-                                    progress_bar.progress(progress_steps["cramer"])
-                                    status_text.info(
-                                        "🎨 Creating visualization: Cramer's V Matrix"
-                                    )
-                                elif "theil" in line_lower:
-                                    progress_bar.progress(progress_steps["theil"])
-                                    status_text.info(
-                                        "🎨 Creating visualization: Theil's U Matrix"
-                                    )
-                                elif "anova" in line_lower or "kruskal" in line_lower:
-                                    progress_bar.progress(progress_steps["anova"])
-                                    status_text.info(
-                                        "🎨 Creating visualization: ANOVA/Kruskal-Wallis Matrix"
-                                    )
-                            elif "drawing" in line_lower or "plotting" in line_lower:
-                                # Show sub-steps
-                                if "pearson" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing Pearson correlation heatmap..."
-                                    )
-                                elif "spearman" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing Spearman correlation heatmap..."
-                                    )
-                                elif "kendall" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing Kendall correlation heatmap..."
-                                    )
-                                elif "cramer" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing Cramer's V heatmap..."
-                                    )
-                                elif "theil" in line_lower:
-                                    status_text.info("  → Drawing Theil's U heatmap...")
-                                elif "anova f-statistics" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing ANOVA F-statistics heatmap..."
-                                    )
-                                elif "anova p-values" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing ANOVA p-values heatmap..."
-                                    )
-                                elif "kruskal-wallis h-statistics" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing Kruskal-Wallis H-statistics heatmap..."
-                                    )
-                                elif "kruskal-wallis p-values" in line_lower:
-                                    status_text.info(
-                                        "  → Drawing Kruskal-Wallis p-values heatmap..."
-                                    )
-                                elif "histogram" in line_lower:
-                                    status_text.info("  → Drawing histogram...")
-                                elif "heatmap" in line_lower:
-                                    status_text.info("  → Drawing heatmap...")
-                                else:
-                                    # Show the actual message
-                                    status_text.info(f"  → {line_stripped}")
-                            elif "saving visualization" in line_lower:
-                                status_text.info("  → Saving visualization to file...")
-                            elif "saved visualization" in line_lower:
-                                # Extract filename
-                                if "numeric_correlations" in line_lower:
-                                    progress_bar.progress(progress_steps["numeric"] + 5)
-                                    status_text.info(
-                                        "✓ Saved: numeric_correlations.png"
-                                    )
-                                elif "cramers_v_matrix" in line_lower:
-                                    progress_bar.progress(progress_steps["cramer"] + 5)
-                                    status_text.info("✓ Saved: cramers_v_matrix.png")
-                                elif "theils_u_matrix" in line_lower:
-                                    progress_bar.progress(progress_steps["theil"] + 5)
-                                    status_text.info("✓ Saved: theils_u_matrix.png")
-                                elif "anova_kruskal" in line_lower:
-                                    progress_bar.progress(progress_steps["anova"] + 5)
-                                    status_text.info(
-                                        "✓ Saved: anova_kruskal_matrix.png"
-                                    )
-                            elif "calculating numeric correlations" in line_lower:
-                                progress_bar.progress(progress_steps["numeric"] - 10)
-                                status_text.info(
-                                    "📊 Calculating numeric correlations..."
-                                )
-                            elif "calculating cramer" in line_lower:
-                                progress_bar.progress(progress_steps["cramer"] - 10)
-                                status_text.info("📊 Calculating Cramer's V matrix...")
-                            elif "calculating theil" in line_lower:
-                                progress_bar.progress(progress_steps["theil"] - 10)
-                                if "vs all categories" in line_lower:
-                                    parts = line_stripped.split(":")
-                                    if len(parts) > 1:
-                                        category_info = parts[1].split("vs")[0].strip()
-                                        status_text.info(
-                                            f"📊 Calculating Theil's U: {category_info}..."
-                                        )
-                                    else:
-                                        status_text.info(
-                                            "📊 Calculating Theil's U matrix..."
-                                        )
-                                else:
-                                    status_text.info(
-                                        "📊 Calculating Theil's U matrix..."
-                                    )
-                            elif "calculating anova" in line_lower:
-                                progress_bar.progress(progress_steps["anova"] - 10)
-                                if "vs all numerical" in line_lower:
-                                    parts = line_stripped.split(":")
-                                    if len(parts) > 1:
-                                        category_info = parts[1].split("vs")[0].strip()
-                                        status_text.info(
-                                            f"📊 Calculating ANOVA/Kruskal-Wallis: {category_info}..."
-                                        )
-                                    else:
-                                        status_text.info(
-                                            "📊 Calculating ANOVA/Kruskal-Wallis..."
-                                        )
-                                else:
-                                    status_text.info(
-                                        "📊 Calculating ANOVA/Kruskal-Wallis statistics..."
-                                    )
-                        else:
-                            stderr_lines.append(line)
-                    except queue.Empty:
-                        continue
-
-                # Wait for threads to finish
-                stdout_thread.join(timeout=1)
-                stderr_thread.join(timeout=1)
-
-                # Get remaining output
-                stdout, stderr = process.communicate()
-                stdout_lines.extend(stdout.splitlines() if stdout else [])
-                stderr_lines.extend(stderr.splitlines() if stderr else [])
-
-                result = type(
-                    "obj",
-                    (object,),
-                    {
-                        "returncode": process.returncode,
-                        "stdout": "\n".join(stdout_lines),
-                        "stderr": "\n".join(stderr_lines),
-                    },
-                )()
-
-                # Clean up temp file if created
-                if Path("temp_correlation_data.parquet").exists():
-                    Path("temp_correlation_data.parquet").unlink()
-
-                progress_bar.progress(100)
-                status_text.empty()
-
-                if result.returncode == 0:
-                    st.success("✓ Analysis completed successfully!")
-                    # Show last few lines of output
-                    if result.stdout:
-                        output_lines = result.stdout.strip().split("\n")
-                        if len(output_lines) > 5:
-                            st.text("\n".join(output_lines[-5:]))
-                        else:
-                            st.text(result.stdout)
-                    st.rerun()  # Refresh to show new visualizations
-                else:
-                    st.error("✗ Analysis failed")
-                    if result.stderr:
-                        st.text(result.stderr)
-                    if result.stdout:
-                        st.text(result.stdout)
-            except subprocess.TimeoutExpired:
-                if "progress_bar" in locals():
-                    progress_bar.progress(100)
-                if "status_text" in locals():
-                    status_text.empty()
-                st.error("✗ Analysis timed out after 10 minutes")
-            except Exception as e:
-                if "progress_bar" in locals():
-                    progress_bar.progress(100)
-                if "status_text" in locals():
-                    status_text.empty()
-                st.error(f"Error: {e}")
-                import traceback
-
-                st.text(traceback.format_exc())
-
-        # Refresh button
-        if st.button(
-            "🔄 Refresh Visualizations",
-            use_container_width=True,
-            key="refresh_correlation",
-        ):
-            st.rerun()
-
-    with col2:
-        st.subheader("Visualizations")
-
-        # Check for generated files
-        correlation_files = {
-            "Numeric Correlations": "numeric_correlations.png",
-            "Cramer's V Matrix": "cramers_v_matrix.png",
-            "Theil's U Matrix": "theils_u_matrix.png",
-            "ANOVA/Kruskal-Wallis": "anova_kruskal_matrix.png",
-        }
-
-        for viz_name, filename in correlation_files.items():
-            filepath = correlation_dir / filename
-            if filepath.exists():
-                st.subheader(viz_name)
-                st.image(str(filepath), use_container_width=True)
-                st.markdown("---")
-            else:
-                st.info(
-                    f"📊 {viz_name} not yet generated. Run the analysis to create it."
-                )
-
-# Tab 2: Anomaly Detection
-with tab2:
-    st.header("Anomaly Detection & Statistical Analysis")
-    st.markdown("""
-    This analysis performs comprehensive statistical analysis and anomaly detection:
-    - **Z-scores** and distributions
-    - **IQR** outlier detection
-    - **Quantile ranks**
-    - **Mahalanobis distance** (multivariate outliers)
-    - **kNN distance**
-    - **Anomaly detectors**: Isolation Forest, LOF, One-Class SVM
-    - **Joint distributions** and mutual information
-    """)
-
-    col1, col2 = st.columns([1, 3])
-
-    with col1:
-        st.subheader("Actions")
-        run_anomaly = st.button(
-            "🚀 Run Anomaly Detection",
-            type="primary",
-            use_container_width=True,
-            key="run_anomaly",
+    with gr.Tab("2. View patient"):
+        gr.Markdown("Select a patient to see their full trajectory.")
+        subject_picker = gr.Dropdown(choices=[], label="Subject")
+        patient_table = gr.Dataframe(label="Trajectory", interactive=False, wrap=True)
+        subject_picker.change(
+            on_view_patient, inputs=[synth_state, subject_picker], outputs=patient_table
         )
 
-        if run_anomaly:
-            # Check if data is selected
-            if (
-                st.session_state.get("use_combined")
-                and st.session_state.get("mimic_combined_path").exists()
-            ):
-                data_source = str(st.session_state["mimic_combined_path"])
-            elif st.session_state.get("selected_tables"):
-                data_source = st.session_state["selected_tables"]
-            else:
-                st.error("Please select at least one table or the combined table")
-                st.stop()
+    with gr.Tab("3. TSTR evaluation"):
+        gr.Markdown(
+            "Train a mortality classifier on the synthetic trajectories, test on "
+            f"`{REAL_TEST_PATH.relative_to(ROOT)}`. Compares against a classifier "
+            "trained on real data (reported as `real_*` metrics)."
+        )
+        tstr_btn = gr.Button("Run TSTR", variant="primary")
+        tstr_table = gr.Dataframe(label="Metrics", interactive=False)
+        tstr_btn.click(on_run_tstr, inputs=synth_state, outputs=tstr_table)
 
-            try:
-                # Load and prepare data
-                if isinstance(data_source, list):
-                    # Multiple tables selected - combine them
-                    dfs = []
-                    for table_path in data_source:
-                        path = Path(table_path)
-                        # Prefer Parquet if available, fallback to CSV
-                        if path.suffix == ".parquet":
-                            df = pd.read_parquet(path)
-                        else:
-                            df = pd.read_csv(path, low_memory=False)
-                        dfs.append(df)
-                    # Simple merge on common columns
-                    combined_df = dfs[0]
-                    for df in dfs[1:]:
-                        common_cols = set(combined_df.columns) & set(df.columns)
-                        if "SUBJECT_ID" in common_cols and "HADM_ID" in common_cols:
-                            combined_df = combined_df.merge(
-                                df,
-                                on=["SUBJECT_ID", "HADM_ID"],
-                                how="outer",
-                                suffixes=("", "_new"),
-                            )
-                        elif "SUBJECT_ID" in common_cols:
-                            combined_df = combined_df.merge(
-                                df, on="SUBJECT_ID", how="outer", suffixes=("", "_new")
-                            )
-                        else:
-                            combined_df = pd.concat([combined_df, df], axis=1)
+    gen_btn.click(
+        on_generate,
+        inputs=[source, model_dropdown, n_patients, n_timesteps, seed],
+        outputs=[synth_state, status, preview_table, subject_picker],
+    )
 
-                    # Save temporary file
-                    temp_file = Path("temp_anomaly_data.parquet")
-                    combined_df.to_parquet(temp_file)
-                    data_source = str(temp_file)
 
-                # Progress tracking
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                status_text.info("🔄 Starting anomaly detection analysis...")
-                progress_bar.progress(5)
-
-                # Run with unbuffered output
-                env = os.environ.copy()
-                env["PYTHONUNBUFFERED"] = "1"
-
-                # Start subprocess with real-time output capture
-                import threading
-                import queue
-
-                process = subprocess.Popen(
-                    [
-                        sys.executable,
-                        "-u",
-                        "scripts/anomaly_detection.py",
-                        "--data",
-                        data_source,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    cwd=os.getcwd(),
-                    env=env,
-                    bufsize=1,
-                )
-
-                # Track progress based on output
-                stdout_lines = []
-                stderr_lines = []
-                progress_steps = {
-                    "z-score": 10,
-                    "iqr": 20,
-                    "quantile": 30,
-                    "mahalanobis": 40,
-                    "knn": 50,
-                    "anomaly": 70,
-                    "rule": 80,
-                    "joint": 90,
-                }
-
-                # Read output line by line
-                output_queue = queue.Queue()
-
-                def read_output(pipe, queue, is_stderr=False):
-                    for line in iter(pipe.readline, ""):
-                        queue.put(("stderr" if is_stderr else "stdout", line))
-                    pipe.close()
-
-                stdout_thread = threading.Thread(
-                    target=read_output, args=(process.stdout, output_queue)
-                )
-                stderr_thread = threading.Thread(
-                    target=read_output, args=(process.stderr, output_queue, True)
-                )
-                stdout_thread.start()
-                stderr_thread.start()
-
-                # Update progress based on output
-                while process.poll() is None:
-                    try:
-                        source, line = output_queue.get(timeout=0.1)
-                        if source == "stdout":
-                            stdout_lines.append(line)
-                            # Update progress based on keywords
-                            line_lower = line.lower()
-                            if (
-                                "z-score" in line_lower
-                                or "calculating z-score" in line_lower
-                            ):
-                                progress_bar.progress(progress_steps["z-score"])
-                                status_text.info("📊 Calculating Z-scores...")
-                            elif "iqr" in line_lower and "calculating" in line_lower:
-                                progress_bar.progress(progress_steps["iqr"])
-                                status_text.info("📊 Calculating IQR...")
-                            elif (
-                                "quantile" in line_lower and "calculating" in line_lower
-                            ):
-                                progress_bar.progress(progress_steps["quantile"])
-                                status_text.info("📊 Calculating quantile ranks...")
-                            elif "mahalanobis" in line_lower:
-                                progress_bar.progress(progress_steps["mahalanobis"])
-                                status_text.info(
-                                    "📊 Calculating Mahalanobis distance..."
-                                )
-                            elif "knn" in line_lower or "k-nearest" in line_lower:
-                                progress_bar.progress(progress_steps["knn"])
-                                status_text.info("📊 Calculating kNN distance...")
-                            elif (
-                                "anomaly detector" in line_lower
-                                or "isolation" in line_lower
-                                or "lof" in line_lower
-                                or "one-class" in line_lower
-                            ):
-                                progress_bar.progress(progress_steps["anomaly"])
-                                status_text.info("📊 Running anomaly detectors...")
-                            elif "rule violation" in line_lower:
-                                progress_bar.progress(progress_steps["rule"])
-                                status_text.info("📊 Checking rule violations...")
-                            elif (
-                                "joint distribution" in line_lower
-                                or "mutual information" in line_lower
-                            ):
-                                progress_bar.progress(progress_steps["joint"])
-                                status_text.info("📊 Measuring joint distributions...")
-                        else:
-                            stderr_lines.append(line)
-                    except queue.Empty:
-                        continue
-
-                # Wait for threads to finish
-                stdout_thread.join(timeout=1)
-                stderr_thread.join(timeout=1)
-
-                # Get remaining output
-                stdout, stderr = process.communicate()
-                stdout_lines.extend(stdout.splitlines() if stdout else [])
-                stderr_lines.extend(stderr.splitlines() if stderr else [])
-
-                result = type(
-                    "obj",
-                    (object,),
-                    {
-                        "returncode": process.returncode,
-                        "stdout": "\n".join(stdout_lines),
-                        "stderr": "\n".join(stderr_lines),
-                    },
-                )()
-
-                # Clean up temp file if created
-                if Path("temp_anomaly_data.parquet").exists():
-                    Path("temp_anomaly_data.parquet").unlink()
-
-                progress_bar.progress(100)
-                status_text.empty()
-
-                if result.returncode == 0:
-                    st.success("✓ Analysis completed successfully!")
-                    # Show last few lines of output
-                    if result.stdout:
-                        output_lines = result.stdout.split("\n")
-                        if len(output_lines) > 10:
-                            st.text("\n".join(output_lines[-10:]))
-                        else:
-                            st.text(result.stdout)
-                    st.rerun()  # Refresh to show new visualizations
-                else:
-                    st.error("✗ Analysis failed")
-                    if result.stderr:
-                        st.text(result.stderr)
-                    if result.stdout:
-                        st.text(result.stdout)
-            except subprocess.TimeoutExpired:
-                if "progress_bar" in locals():
-                    progress_bar.progress(100)
-                if "status_text" in locals():
-                    status_text.empty()
-                st.error("✗ Analysis timed out after 30 minutes")
-            except Exception as e:
-                if "progress_bar" in locals():
-                    progress_bar.progress(100)
-                if "status_text" in locals():
-                    status_text.empty()
-                st.error(f"Error: {e}")
-                import traceback
-
-                st.text(traceback.format_exc())
-
-        # Refresh button
-        if st.button(
-            "🔄 Refresh Visualizations", use_container_width=True, key="refresh_anomaly"
-        ):
-            st.rerun()
-
-    with col2:
-        st.subheader("Visualizations")
-
-        # Check for generated files
-        anomaly_files = {
-            "Z-Score Distributions": "z_scores_distributions.png",
-            "IQR Outliers": "iqr_outliers.png",
-            "Quantile Ranks": "quantile_ranks_distributions.png",
-            "Mahalanobis Distance": "mahalanobis_distance.png",
-            "kNN Distance": "knn_distance.png",
-            "Anomaly Detectors": "anomaly_detectors.png",
-            "Joint Distributions": "joint_distributions.png",
-            "Mutual Information Matrix": "mutual_information_matrix.png",
-        }
-
-        # Group visualizations in expandable sections
-        for viz_name, filename in anomaly_files.items():
-            filepath = anomaly_dir / filename
-            if filepath.exists():
-                with st.expander(f"📊 {viz_name}", expanded=True):
-                    st.image(str(filepath), use_container_width=True)
-            else:
-                st.info(
-                    f"📊 {viz_name} not yet generated. Run the analysis to create it."
-                )
-                st.markdown("---")
-
-# Footer
-st.markdown("---")
-st.markdown(
-    """
-<div style='text-align: center; color: #666; padding: 2rem;'>
-    <p>MIMIC-III Data Analysis Dashboard</p>
-    <p><small>Generated visualizations are saved in <code>eda/</code> directory</small></p>
-</div>
-""",
-    unsafe_allow_html=True,
-)
+if __name__ == "__main__":
+    demo.launch()

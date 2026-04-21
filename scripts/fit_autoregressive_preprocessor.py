@@ -24,7 +24,7 @@ import pickle
 import pandas as pd
 from tqdm import tqdm
 
-from synth_gen.data import (
+from lexisflow.data import (
     TabularPreprocessor,
     split_static_dynamic,
     is_lagged,

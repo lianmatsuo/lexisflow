@@ -8,7 +8,7 @@ generation, then aggregates TSTR + quality + privacy + trajectory metrics over
 
 This file is intentionally thin: all heavy lifting (data loading, generator
 training, trajectory sampling, evaluation, schema management) lives in
-:mod:`synth_gen.sweep`. Importing those helpers keeps the sweep driver and the
+:mod:`lexisflow.sweep`. Importing those helpers keeps the sweep driver and the
 matched-backbone comparison driver in lockstep.
 
 Usage:
@@ -27,7 +27,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
-from synth_gen.sweep import (
+from lexisflow.sweep import (
     DEFAULT_N_JOBS,
     SEQUENCE_TIMESTEPS,
     TSTR_TRAJECTORY_SAMPLING_SEEDS,
@@ -155,6 +155,26 @@ def _run_sweep_cell(
         )
         print(f"    Autoregressive training: {format_time(train_time)}")
         run_progress.update(1)
+
+        autoregressive_model_path = (
+            models_dir / f"autoregressive_nt{nt}_noise{n_noise}.pkl"
+        )
+        with open(autoregressive_model_path, "wb") as f:
+            pickle.dump(
+                {
+                    "model": model,
+                    "all_cols": autoregressive_inputs.all_cols,
+                    "target_indices": autoregressive_inputs.target_indices,
+                    "condition_indices": autoregressive_inputs.condition_indices,
+                    "training_samples": autoregressive_inputs.X_train.shape[0],
+                    "nt": nt,
+                    "n_noise": n_noise,
+                    "training_time_seconds": train_time,
+                    "model_type": model_type,
+                },
+                f,
+            )
+        print(f"    Saved to: {autoregressive_model_path}")
 
         seed_metrics: list[dict] = []
         for si, traj_seed in enumerate(TSTR_TRAJECTORY_SAMPLING_SEEDS):
@@ -361,7 +381,8 @@ def main() -> None:
     print(f"  Total time: {format_time(total_time)}")
     print(f"  Completed runs: {len(completed)}/{total_runs}")
     print(f"  Results saved to: {results_path}")
-    print(f"  Hour-0 models saved to: {models_dir}/")
+    print(f"  Model artifacts saved to: {models_dir}/")
+    print("    Files: hour0_nt*_noise*.pkl, autoregressive_nt*_noise*.pkl")
     print("\nNext steps:")
     print("  • Run scripts/analyze_sweep.py to visualize results")
 

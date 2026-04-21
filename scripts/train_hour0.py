@@ -27,7 +27,7 @@ import argparse
 import pandas as pd
 import numpy as np
 
-from synth_gen.models import ForestFlow, HS3F
+from lexisflow.models import ForestFlow, HS3F
 
 
 def main():

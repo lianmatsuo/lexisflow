@@ -4,10 +4,10 @@ build-backend = "setuptools:build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["synth_gen*"]
+include = ["lexisflow*"]
 
 [project]
-name = "synth-gen"
+name = "lexisflow"
 version = "0.1.0"
 description = "Healthcare dataset curation for ML model training"
 requires-python = ">=3.10"
@@ -36,6 +36,7 @@ dependencies = [
     "xgboost>=2.0.0",
     "duckdb>=1.4.2",
     "graphifyy>=0.4.18",
+    "gradio>=6.13.0",
 ]
 
 [dependency-groups]
@@ -43,6 +44,6 @@ dev = [
     "pytest>=9.0.2",
 ]
 
-# Thread caps must run before NumPy/torch (see src/synth_gen/models/ctgan_adapter.py).
+# Thread caps must run before NumPy/torch (see src/lexisflow/models/ctgan_adapter.py).
 [tool.ruff.lint.per-file-ignores]
-"src/synth_gen/models/ctgan_adapter.py" = ["E402"]
+"src/lexisflow/models/ctgan_adapter.py" = ["E402"]

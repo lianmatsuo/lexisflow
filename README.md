@@ -1,4 +1,4 @@
-# Synth-Gen: Synthetic MIMIC-III Data Generation
+# LexisFlow: Synthetic MIMIC-III Data Generation
 
 Generate synthetic ICU patient data using **Forest-Flow** — a state-of-the-art generative model that uses XGBoost instead of neural networks.
 
@@ -51,7 +51,7 @@ uv run python scripts/train_autoregressive.py \
 uv run python scripts/generate.py
 
 # Step 4: Evaluate privacy risk (DCR + membership inference)
-uv run python -m synth_gen.evaluation.privacy_metrics \
+uv run python -m lexisflow.evaluation.privacy_metrics \
   --real-data data/processed/flat_table.csv \
   --synthetic-data results/synthetic_patients.csv \
   --output-path results/privacy_metrics.json
@@ -146,7 +146,7 @@ Recent complexity reduction efforts have significantly improved code maintainabi
 5. **Removed legacy files:** Cleaned up outdated code and documentation
 
 ### Feature Utilities Module
-The `src/synth_gen/data/feature_utils.py` module provides centralized utilities:
+The `src/lexisflow/data/feature_utils.py` module provides centralized utilities:
 - `flatten_column_names()` - Convert tuple columns to strings
 - `is_lagged()` - Detect lagged features
 - `is_binary_feature()` - Identify binary 0/1 features
@@ -164,26 +164,26 @@ The `src/synth_gen/data/feature_utils.py` module provides centralized utilities:
 Run unit tests to verify core functionality:
 
 ```bash
-# Run all tests (tests are colocated with code in src/synth_gen/)
+# Run all tests (tests are colocated with code in src/lexisflow/)
 uv run pytest
 
 # Run specific package tests
-uv run pytest src/synth_gen/data/tests/
-uv run pytest src/synth_gen/models/tests/
-uv run pytest src/synth_gen/evaluation/tests/
+uv run pytest src/lexisflow/data/tests/
+uv run pytest src/lexisflow/models/tests/
+uv run pytest src/lexisflow/evaluation/tests/
 
 # Run specific test file
-uv run pytest src/synth_gen/data/tests/test_transformers.py
+uv run pytest src/lexisflow/data/tests/test_transformers.py
 
 # Run with coverage
-uv run pytest --cov=synth_gen --cov-report=html
+uv run pytest --cov=lexisflow --cov-report=html
 ```
 
 ## Project Structure
 
 ```
-synth-gen/
-├── src/synth_gen/               # Core library modules
+lexisflow/
+├── src/lexisflow/               # Core library modules
 │   ├── data/                    # Data loading, preprocessing, autoregressive prep
 │   │   ├── transformers.py      # TabularPreprocessor
 │   │   ├── autoregressive.py    # Lag feature creation
@@ -231,12 +231,12 @@ synth-gen/
 **🎉 Clean Import Structure:**
 ```python
 # Professional, modular imports
-from synth_gen.data.transformers import TabularPreprocessor
-from synth_gen.data.autoregressive import prepare_autoregressive_data
-from synth_gen.models.forest_flow import ForestFlow
-from synth_gen.models.sampling import sample_trajectory
-from synth_gen.evaluation.quality_metrics import compute_quality_metrics
-from synth_gen.mortality.model import MortalityClassifier
+from lexisflow.data.transformers import TabularPreprocessor
+from lexisflow.data.autoregressive import prepare_autoregressive_data
+from lexisflow.models.forest_flow import ForestFlow
+from lexisflow.models.sampling import sample_trajectory
+from lexisflow.evaluation.quality_metrics import compute_quality_metrics
+from lexisflow.mortality.model import MortalityClassifier
 ```
 
 ## Key Parameters

@@ -24,7 +24,7 @@ Clone the repository and install dependencies:
 
 \begin{verbatim}
 git clone <repository-url>
-cd synth-gen
+cd lexisflow
 uv sync            # installs all dependencies from pyproject.toml
 \end{verbatim}
 
@@ -46,7 +46,7 @@ All unit tests should pass.
 \section{Configuration}
 %==============================================================================
 
-Runtime configuration is split between script CLI flags and YAML defaults used by sweep/evaluation utilities. In particular, \texttt{scripts/02\_train\_model.py} exposes key training controls via CLI (for example \texttt{--nt}, \texttt{--n-noise}, \texttt{--max-rows}, \texttt{--n-jobs}, and \texttt{--batch-size}), while sweep and classifier defaults remain in config files.
+Runtime configuration is split between script CLI flags and YAML defaults used by sweep/evaluation utilities. In particular, \texttt{scripts/train\_autoregressive.py} exposes key training controls via CLI (for example \texttt{--nt}, \texttt{--n-noise}, \texttt{--max-rows}, \texttt{--n-jobs}, and \texttt{--batch-size}), while sweep and classifier defaults remain in config files.
 
 \begin{itemize}\tightlist
     \item \textbf{data}: input CSV path, maximum training rows, excluded columns, static column list, and quality filters.
@@ -74,7 +74,7 @@ uv run python scripts/train_hour0.py
 
 \textbf{Outputs:}
 \begin{itemize}\tightlist
-    \item \texttt{src/synth\_gen/data/processed/hour0\_data.csv}
+    \item \texttt{data/processed/hour0\_data.csv}
     \item \texttt{models/hour0\_preprocessor.pkl}
     \item \texttt{models/hour0\_forest\_flow.pkl}
 \end{itemize}
@@ -89,7 +89,7 @@ uv run python scripts/prepare_autoregressive.py
 
 This script identifies and drops columns that are 100\% missing, removes datetime columns, creates lagged features for each dynamic column, and separates static from dynamic features.
 
-\textbf{Output:} \texttt{src/synth\_gen/data/processed/autoregressive\_data.csv}
+\textbf{Output:} \texttt{data/processed/autoregressive\_data.csv}
 
 \subsection{Step 1b: Fit Preprocessor}
 
@@ -174,5 +174,5 @@ The project includes 54 unit tests covering quality metrics, privacy metrics, TS
 \begin{verbatim}
 uv run pytest                    # run all tests
 uv run pytest -v                 # verbose output
-uv run pytest src/synth_gen/models/   # run model tests only
+uv run pytest src/lexisflow/models/   # run model tests only
 \end{verbatim}

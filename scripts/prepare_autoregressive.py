@@ -26,7 +26,7 @@ import pandas as pd
 import duckdb
 from tqdm import tqdm
 
-from synth_gen.data import (
+from lexisflow.data import (
     columns_to_drop_default_feature_pruning,
     DEFAULT_DATETIME_COLUMNS,
     prepare_autoregressive_data,

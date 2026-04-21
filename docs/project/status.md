@@ -9,7 +9,7 @@
 
 ### Core pipeline and architecture
 1. ✅ **CSV path and format standardization**
-   - Unified under `src/synth_gen/data/processed/`
+   - Unified under `src/lexisflow/data/processed/`
    - Legacy parquet/memmap paths removed
 
 2. ✅ **Feature engineering and preprocessing workflow**
@@ -39,18 +39,18 @@
    - Visualization suite (`analyze_sweep.py`)
 
 7. ✅ **Temporal coherence metrics implementation**
-   - Added trajectory-level metrics in `src/synth_gen/evaluation/trajectory_metrics.py`
+   - Added trajectory-level metrics in `src/lexisflow/evaluation/trajectory_metrics.py`
    - Metrics include autocorrelation distance, stay-length KS, transition smoothness ratio, temporal correlation drift
    - Integrated into sweep evaluation path (`run_sweep.py`)
-   - Covered by dedicated unit tests (`src/synth_gen/evaluation/tests/test_trajectory_metrics.py`)
+   - Covered by dedicated unit tests (`src/lexisflow/evaluation/tests/test_trajectory_metrics.py`)
 
 8. ✅ **CTGAN baseline integration (implementation stage)**
-   - Added `CTGANAdapter` (`src/synth_gen/models/ctgan_adapter.py`)
+   - Added `CTGANAdapter` (`src/lexisflow/models/ctgan_adapter.py`)
    - Integrated into model registry and sweep training paths
    - Added matched-comparison runner (`scripts/run_backbone_comparison.py`) for HS3F vs ForestFlow vs CTGAN at a matched cell
 
 9. ✅ **Testing**
-   - 54 unit tests in `src/synth_gen/*/tests`
+   - 54 unit tests in `src/lexisflow/*/tests`
    - Core data/model/evaluation modules covered
 
 10. ✅ **End-to-end pipeline verification**
@@ -147,7 +147,7 @@
 - **Sweep design:** `docs/SWEEP_ARCHITECTURE.md`
 - **Hour-0 design:** `docs/HOUR_0_MODEL_PLAN.md`
 - **Architecture overview:** `docs/architecture/PROJECT_ARCHITECTURE.md`
-- **Main report:** `report_latex/report.tex`
+- **Main report:** `report_latex/lexisflow_report.tex`
 
 ---
 
