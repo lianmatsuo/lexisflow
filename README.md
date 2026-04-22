@@ -1,15 +1,15 @@
 # LexisFlow: Synthetic MIMIC-III Data Generation
 
-Generate synthetic ICU patient data using **Forest-Flow** — a state-of-the-art generative model that uses XGBoost instead of neural networks.
+Generate synthetic ICU patient trajectories with **flow-matched gradient-boosted generators**. The default sweep backbone is **HS3F** (sequential heterogeneous routing); **ForestFlow** (all-continuous flow) and a **CTGAN** baseline are also implemented and can be selected on the dataset sweep drivers or compared in a dedicated matched-cell script.
 
 ## Features
 
 - **Fully synthetic generation:** Hour-0 model generates initial patient states without real data
 - **Autoregressive trajectories:** Generate realistic patient timelines with temporal continuity
-- **No GPU required:** Trains on CPUs using XGBoost
-- **Handles missing data natively:** XGBoost learns optimal missing value handling
+- **CPU-friendly core generators:** HS3F and ForestFlow train via XGBoost; the optional CTGAN baseline uses PyTorch and may use a GPU if available
+- **Missing data:** Gaps are handled **up front** in preparation, not only inside the booster: hour-0 scripts impute numerics with the **median** and categoricals with the **mode** or **`Unknown`**; autoregressive tables build lag-1 condition columns with a **sentinel fill** (default **`-1.0`**) when no history exists (`prepare_autoregressive_data`). The public Challenge 2012 autoregressive prep also **forward-/backward-fills** within patient, then **global medians**, before lagging. Training matrices are therefore mostly **explicitly filled**; XGBoost’s native NA splits are not the main story.
 - **Quality evaluation:** KS tests, correlation preservation, TSTR evaluation
-- **Patient-level sequence utility:** Multi-task TSTR (mortality, vasopressor, LOS) trains on full synthetic trajectories and tests on real trajectories
+- **Patient-level sequence utility:** Multi-task TSTR on **mortality and length-of-stay (LOS) only** — sequence classifiers train on full synthetic trajectories and test on real trajectories (no additional utility heads in the sweep evaluation bundle)
 - **Privacy evaluation:** DCR diagnostics + membership inference risk
 - **Modular architecture:** Clean, professional package structure
 
@@ -51,17 +51,17 @@ uv run python scripts/run_sweep.py --dataset challenge2012
 uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
 ```
 
-**Two-Stage Architecture:**
+**Two-Stage Architecture (per backbone):**
 ```
 ┌──────────────┐
 │ Hour-0 Model │ → Demographics + Hour-0 vitals (IID)
-│ (New!)       │
+│              │
 └──────┬───────┘
        ↓
-┌─────────────────┐
-│ Forest-Flow     │ → Hours 1, 2, 3, ..., N (Autoregressive)
-│                 │
-└─────────────────┘
+┌──────────────────────────────┐
+│ Autoregressive generator     │ → Hours 1, 2, 3, …, N
+│ (default: HS3F; or FF/CTGAN) │
+└──────────────────────────────┘
 ```
 
 See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for the implemented sweep lifecycle and outputs.
@@ -98,13 +98,18 @@ CLI precedence is: explicit flag override > selected profile defaults > dataset 
 `--n-jobs` can be set on the top-level command to override parallel worker count
 for the dataset sweep step on machines with different CPU core counts.
 
-The sweep still trains **both models** with identical hyperparameters:
-- Each `(nt, n_noise)` combination trains hour-0 IID + autoregressive models
-- Ensures fair comparison across hyperparameter settings
-- Mortality utility is evaluated with a patient-level sequence TSTR model over autoregressive trajectories
-- Each sweep cell runs TSTR three times with trajectory sampling seeds `42`, `11`, and `50`; reported key utility/quality/privacy metrics include mean, seed-level standard deviation, and 95% confidence-interval half-widths
-- Hour-0 models saved to `artifacts/sweep/hour0_nt{nt}_noise{n_noise}.pkl`
-- Select best configuration from sweep results and copy to `artifacts/hour0_forest_flow.pkl`
+For **one chosen generator backbone** (default **`hs3f`**), each sweep cell trains **two stages** with the same `(nt, n_noise)` hyperparameters:
+- **Hour-0 (IID)** and **autoregressive** checkpoints are written under `artifacts/sweep/` (for example `hour0_nt{nt}_noise{n_noise}.pkl` and `autoregressive_nt{nt}_noise{n_noise}.pkl`).
+- A single sweep invocation uses **one** `--model-type` (default `hs3f`). The hyperparameter grid characterises that backbone only; switching to ForestFlow or CTGAN means **rerunning** the driver with the other `--model-type` (see below)—not a simultaneous multi-backbone matrix.
+- **Matched comparison** of HS3F vs ForestFlow vs CTGAN at a **single shared cell** (same rows, synthetic budget, trajectory seeds) is a separate orchestrator: `scripts/mimic/run_backbone_comparison.py`.
+- **Utility:** patient-level sequence TSTR covers **mortality and LOS only** (see `src/lexisflow/sweep/evaluation.py`).
+- Each sweep cell aggregates TSTR over three trajectory sampling seeds (`42`, `11`, `50`); reported metrics include means, seed-level standard deviations, and 95% CI half-widths where applicable.
+
+The top-level command `scripts/run_sweep.py` forwards **`--profile`** and **`--n-jobs`** to the dataset sweep only. To sweep **ForestFlow** or **CTGAN**, run the dataset driver directly after data/preprocessor steps, for example:
+`uv run python scripts/mimic/run_sweep.py --model-type forest-flow` or
+`uv run python scripts/challenge2012/run_sweep.py --model-type ctgan` (plus your usual `--profile` / `--n-jobs`).
+
+Some standalone MIMIC scripts still use the legacy filename `artifacts/hour0_forest_flow.pkl`; promote checkpoints from `artifacts/sweep/` if your workflow expects that path (see `scripts/WORKFLOW.md`).
 
 ### 5. Public Reproducibility Example (no MIMIC access required)
 
@@ -161,9 +166,9 @@ lexisflow/
 │   │   ├── feature_utils.py     # Centralized feature detection utilities
 │   │   ├── loaders.py           # Data loading utilities
 │   │   └── tests/               # Unit tests
-│   ├── models/                  # Forest-Flow, HS3F, CTGAN, sampling
-│   │   ├── forest_flow.py       # Core ForestFlow model
-│   │   ├── hs3f.py              # HS3F model
+│   ├── models/                  # HS3F, ForestFlow, CTGAN, sampling
+│   │   ├── hs3f.py              # HS3F model (default sweep backbone)
+│   │   ├── forest_flow.py       # ForestFlow model
 │   │   ├── ctgan_adapter.py     # CTGAN baseline
 │   │   ├── sampling.py          # Trajectory generation
 │   │   ├── iterator.py          # Memory-efficient training
@@ -206,7 +211,7 @@ lexisflow/
 
 ## References
 
-- **Paper:** [Generating and Imputing Tabular Data via Diffusion and Flow-based Gradient-Boosted Trees](https://arxiv.org/abs/2309.09968)
+- **ForestFlow lineage:** [Generating and Imputing Tabular Data via Diffusion and Flow-based Gradient-Boosted Trees](https://arxiv.org/abs/2309.09968)
 - **MIMIC-III:** [PhysioNet](https://physionet.org/content/mimiciii/)
 
 ## License

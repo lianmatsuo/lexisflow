@@ -5,7 +5,7 @@ Secondary reproducibility benchmark alongside MIMIC-III.
 
 Builds hourly-binned trajectories (48 hours/patient), then calls the shared
 ``prepare_autoregressive_data`` helper to create lag-1 (current, previous)
-pairs suitable for the Forest-Flow autoregressive model.
+pairs suitable for autoregressive flow / HS3F training.
 
 Output:
     data/challenge2012/processed/autoregressive_data.csv
