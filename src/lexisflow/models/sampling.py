@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from typing import Callable
 from tqdm import tqdm
 
 from .forest_flow import ForestFlow
@@ -236,73 +235,6 @@ def sample_trajectory(
         trajectories.append(trajectory_df)
 
     return trajectories
-
-
-def sample_trajectory_with_initial_sampling(
-    model: ForestFlow,
-    preprocessor: TabularPreprocessor,
-    initial_sampler: Callable[[int, int], np.ndarray],
-    n_trajectories: int = 1,
-    max_hours: int = 48,
-    target_cols: list[str] | None = None,
-    static_cols: list[str] | None = None,
-    n_static_dims: int = 0,
-    discharge_col: str | None = None,
-    discharge_threshold: float = 0.5,
-    random_state: int | None = None,
-    verbose: bool = True,
-) -> list[pd.DataFrame]:
-    """Generate trajectories with custom initial state sampler.
-
-    This variant allows full control over initial state generation,
-    useful for training a separate model for admission states.
-
-    Args:
-        model: Fitted conditional ForestFlow model for P(X_t | X_{t-1}, Static).
-        preprocessor: Fitted TabularPreprocessor.
-        initial_sampler: Function that takes (n_samples, random_seed) and returns
-                        initial states of shape (n_samples, d_target + d_static).
-        n_trajectories: Number of trajectories to generate.
-        max_hours: Maximum timesteps to generate.
-        target_cols: List of target column names.
-        static_cols: List of static column names.
-        n_static_dims: Number of static feature dimensions.
-        discharge_col: Optional discharge indicator column.
-        discharge_threshold: Threshold for discharge.
-        random_state: Random seed.
-        verbose: Show progress.
-
-    Returns:
-        List of trajectory DataFrames.
-    """
-    rng = np.random.default_rng(random_state)
-
-    # Sample initial states using custom sampler
-    initial_full = initial_sampler(n_trajectories, rng.integers(0, 2**31))
-
-    # Split into static and initial dynamic
-    if n_static_dims > 0:
-        static_features = initial_full[:, :n_static_dims]
-        initial_dynamic = initial_full[:, n_static_dims:]
-    else:
-        static_features = None
-        initial_dynamic = initial_full
-
-    # Use main trajectory sampler
-    return sample_trajectory(
-        model=model,
-        preprocessor=preprocessor,
-        static_features=static_features,
-        n_trajectories=n_trajectories,
-        max_hours=max_hours,
-        target_cols=target_cols,
-        condition_cols=None,  # Not needed when providing initial_state
-        initial_state=initial_dynamic,
-        discharge_col=discharge_col,
-        discharge_threshold=discharge_threshold,
-        random_state=random_state,
-        verbose=verbose,
-    )
 
 
 def prepare_training_data_from_trajectories(

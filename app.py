@@ -51,10 +51,20 @@ for legacy, target in [
 # --- Paths -------------------------------------------------------------------
 ROOT = Path(__file__).parent
 SWEEP_DIR = ROOT / "artifacts" / "sweep"
-AR_MODEL_PATH = ROOT / "artifacts" / "autoregressive_forest_flow.pkl"
+# AR bundle lives in the sweep directory and carries its own all_cols +
+# target_indices/condition_indices that match preprocessor_full.
+AR_MODEL_PATH = SWEEP_DIR / "autoregressive_nt34_noise34.pkl"
 AR_PREP_PATH = ROOT / "artifacts" / "preprocessor_full.pkl"
 HOUR0_PREP_PATH = ROOT / "artifacts" / "hour0_preprocessor.pkl"
 REAL_TEST_PATH = ROOT / "data" / "processed" / "real_test.csv"
+
+_REQUIRED_ARTIFACTS = [AR_MODEL_PATH, AR_PREP_PATH, HOUR0_PREP_PATH, REAL_TEST_PATH]
+_missing = [p for p in _REQUIRED_ARTIFACTS if not p.exists()]
+if _missing:
+    raise FileNotFoundError(
+        "Missing required artifacts:\n  "
+        + "\n  ".join(str(p.relative_to(ROOT)) for p in _missing)
+    )
 
 
 # --- Loaders (cached via module-level singletons) ----------------------------
@@ -70,11 +80,21 @@ _HOUR0_PREP_CACHE: dict | None = None
 def load_ar_bundle() -> dict:
     global _AR_CACHE
     if _AR_CACHE is None:
-        ar_model = _pickle_load(AR_MODEL_PATH)
-        if isinstance(ar_model, dict) and "model" in ar_model:
-            ar_model = ar_model["model"]
+        ar_artifact = _pickle_load(AR_MODEL_PATH)
         prep = _pickle_load(AR_PREP_PATH)
-        _AR_CACHE = {"model": ar_model, **prep}
+        if isinstance(ar_artifact, dict) and "model" in ar_artifact:
+            ar_model = ar_artifact["model"]
+            # Sweep bundles carry their own all_cols + indices; prefer those
+            # so the AR model sees the exact feature layout it was trained on.
+            bundle_meta = {
+                k: ar_artifact[k]
+                for k in ("all_cols", "target_indices", "condition_indices")
+                if k in ar_artifact
+            }
+        else:
+            ar_model = ar_artifact
+            bundle_meta = {}
+        _AR_CACHE = {"model": ar_model, **prep, **bundle_meta}
     return _AR_CACHE
 
 
@@ -134,21 +154,21 @@ def _build_ar_init_dataframe(df_hour0: pd.DataFrame, ar: dict) -> pd.DataFrame:
     condition_cols: list[str] = ar["condition_cols"]
     all_cols: list[str] = ar["all_cols"]
 
-    out = pd.DataFrame(index=range(len(df_hour0)))
+    n = len(df_hour0)
+    data: dict[str, object] = {}
     for col in target_cols:
-        out[col] = df_hour0[col] if col in df_hour0.columns else 0.0
+        data[col] = df_hour0[col].values if col in df_hour0.columns else np.zeros(n)
 
     for col in condition_cols:
         if col.endswith("_lag1"):
             base = col[: -len("_lag1")]
-            if base in df_hour0.columns:
-                out[col] = df_hour0[base].values
-            else:
-                out[col] = 0.0
+            data[col] = (
+                df_hour0[base].values if base in df_hour0.columns else np.zeros(n)
+            )
         else:
-            out[col] = df_hour0[col] if col in df_hour0.columns else 0.0
+            data[col] = df_hour0[col].values if col in df_hour0.columns else np.zeros(n)
 
-    return out[all_cols]
+    return pd.DataFrame(data)[all_cols]
 
 
 def generate_trajectories(

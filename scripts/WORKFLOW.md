@@ -9,6 +9,7 @@ uv run python scripts/run_sweep.py --dataset mimic
 Use `--dataset challenge2012` for the public PhysioNet benchmark and `--reset`
 to clear generated data/preprocessors/cache/results before rerunning.
 Use `--profile smoke` for a faster, reduced-budget validation run.
+Use `--n-jobs` to control CPU parallelism in the sweep stage.
 
 All other scripts in `scripts/mimic/`, `scripts/challenge2012/`, and
 `scripts/common/` are internal pipeline steps called by `scripts/run_sweep.py`.
@@ -33,6 +34,7 @@ uv run python scripts/run_sweep.py --dataset mimic
 uv run python scripts/run_sweep.py --dataset challenge2012
 uv run python scripts/run_sweep.py --dataset mimic --profile smoke
 uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
+uv run python scripts/run_sweep.py --dataset mimic --n-jobs 8
 uv run python scripts/run_sweep.py --dataset mimic --reset
 
 uv run python scripts/common/analyze_sweep.py
@@ -79,3 +81,5 @@ uv run python scripts/challenge2012/run_sweep.py --profile smoke --train-rows 30
 ```
 
 CLI precedence is: explicit flags > profile defaults > dataset defaults.
+The top-level `scripts/run_sweep.py --n-jobs <int>` forwards the worker override
+to the dataset-specific sweep driver.

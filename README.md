@@ -34,6 +34,9 @@ uv run python scripts/run_sweep.py --dataset mimic
 # Fast smoke preset for quick validation
 uv run python scripts/run_sweep.py --dataset mimic --profile smoke
 
+# Override CPU parallelism for the sweep stage
+uv run python scripts/run_sweep.py --dataset mimic --n-jobs 8
+
 # Optional: clear generated data/preprocessors/cache/results, then rerun
 uv run python scripts/run_sweep.py --dataset mimic --reset
 ```
@@ -67,7 +70,7 @@ uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
 - ✅ No real data required as input
 - ✅ Controllable demographics (future: conditional generation)
 
-See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for complete details.
+See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for the implemented sweep lifecycle and outputs.
 
 ### 4. Advanced: Hyperparameter Sweep
 
@@ -98,6 +101,8 @@ Configuration defaults are centralised in
 - `sweep_profiles`: profile presets (`full`, `smoke`)
 
 CLI precedence is: explicit flag override > selected profile defaults > dataset defaults.
+`--n-jobs` can be set on the top-level command to override parallel worker count
+for the dataset sweep step on machines with different CPU core counts.
 
 The sweep still trains **both models** with identical hyperparameters:
 - Each `(nt, n_noise)` combination trains hour-0 IID + autoregressive models
@@ -125,9 +130,9 @@ uv run python scripts/run_sweep.py --dataset challenge2012
 
 | Document | Description |
 |----------|-------------|
-| [PROJECT_ARCHITECTURE.md](docs/architecture/PROJECT_ARCHITECTURE.md) | Comprehensive project overview & critical analysis |
+| [PROJECT_ARCHITECTURE.md](docs/architecture/PROJECT_ARCHITECTURE.md) | Implementation-only system architecture |
 | [scripts/WORKFLOW.md](scripts/WORKFLOW.md) | Complete workflow guide & script usage |
-| [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) | Hyperparameter sweep details & TSTR |
+| [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) | Sweep execution flow, schema, cache, and outputs |
 | [scripts/challenge2012/README.md](scripts/challenge2012/README.md) | Public reproducibility example (Challenge 2012) |
 | [report_latex/](report_latex/) | LaTeX thesis |
 
@@ -209,7 +214,7 @@ lexisflow/
 │       ├── data_prep.py         # Preprocessor + cache loading
 │       └── tests/               # Unit tests
 ├── scripts/                     # Workflow scripts
-│   ├── run_sweep.py                  # Public orchestrator (--dataset, --profile, --reset)
+│   ├── run_sweep.py                  # Public orchestrator (--dataset, --profile, --n-jobs, --reset)
 │   ├── mimic/                        # MIMIC internal pipeline scripts
 │   ├── challenge2012/                # Challenge 2012 internal pipeline scripts
 │   └── common/                       # Shared analysis utilities (e.g., analyze_sweep.py)

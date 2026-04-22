@@ -986,18 +986,69 @@ class LOSTask(TSTRTask):
             ),
         }
 
-        # Multi-class ROC-AUC (one-vs-rest)
-        if y_proba is not None:
-            try:
-                metrics["roc_auc"] = roc_auc_score(
-                    y_true, y_proba, multi_class="ovr", average="macro"
-                )
-            except Exception:
-                metrics["roc_auc"] = np.nan
-        else:
-            metrics["roc_auc"] = np.nan
+        metrics["roc_auc"] = self._compute_los_roc_auc(y_true, y_proba)
 
         return metrics
+
+    @staticmethod
+    def _compute_los_roc_auc(
+        y_true: np.ndarray, y_proba: Optional[np.ndarray]
+    ) -> float:
+        """Compute LOS ROC-AUC with binary fallback for missing classes."""
+        if y_proba is None:
+            return np.nan
+
+        y_true_arr = np.asarray(y_true)
+        classes = np.unique(y_true_arr)
+        if len(classes) < 2:
+            return np.nan
+
+        y_score = np.asarray(y_proba)
+        if y_score.ndim == 1:
+            if len(classes) != 2:
+                return np.nan
+            pos_class = classes[-1]
+            y_bin = (y_true_arr == pos_class).astype(int)
+            return float(roc_auc_score(y_bin, y_score))
+
+        n_cols = y_score.shape[1]
+        try:
+            # Usual multiclass path when labels and score columns align.
+            if len(classes) > 2 and n_cols == len(classes):
+                return float(
+                    roc_auc_score(
+                        y_true_arr, y_score, multi_class="ovr", average="macro"
+                    )
+                )
+
+            # Binary fallback for sparse-label splits (e.g., LOS class 0 absent).
+            if len(classes) == 2:
+                pos_class = int(classes[-1])
+                if n_cols == 2:
+                    pos_score = y_score[:, 1]
+                elif 0 <= pos_class < n_cols:
+                    # LOS labels are canonical bins 0/1/2, so this aligns when
+                    # model probabilities include all bins but y_true has only 2.
+                    pos_score = y_score[:, pos_class]
+                else:
+                    pos_score = y_score[:, -1]
+                y_bin = (y_true_arr == classes[-1]).astype(int)
+                return float(roc_auc_score(y_bin, pos_score))
+
+            # Fallback: try selecting columns by observed class IDs.
+            class_cols = [int(c) for c in classes if 0 <= int(c) < n_cols]
+            if len(classes) > 2 and len(class_cols) == len(classes):
+                sub_scores = y_score[:, class_cols]
+                remap = {int(c): i for i, c in enumerate(classes)}
+                y_remapped = np.asarray([remap[int(c)] for c in y_true_arr], dtype=int)
+                return float(
+                    roc_auc_score(
+                        y_remapped, sub_scores, multi_class="ovr", average="macro"
+                    )
+                )
+        except Exception:
+            return np.nan
+        return np.nan
 
     def _sequence_label_fn(self, patient_rows: pd.DataFrame) -> int | None:
         if "los_icu" in patient_rows.columns:

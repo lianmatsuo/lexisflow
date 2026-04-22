@@ -173,16 +173,3 @@ NFR5 & Could & The system could cache transformed data matrices to avoid redunda
     \item \textbf{Single dataset}: All requirements are specified and verified against MIMIC-III; portability to other clinical datasets is not guaranteed.
     \item \textbf{No real-time or interactive generation}: The system operates in batch mode via command-line scripts.
 \end{itemize}
-
-%==============================================================================
-\section{Target Criteria and Outcome Alignment}
-%==============================================================================
-
-To avoid ambiguity, the use-case criteria above are treated as \emph{acceptance targets} for this dissertation rather than as pre-satisfied outcomes. Chapter~7 reports whether each target was met, partially met, or not met.
-
-Based on the current evidence reported later in the dissertation:
-\begin{itemize}\tightlist
-    \item The utility target of being within 0.15 ROC-AUC of the real baseline was \textbf{not met} (best synthetic mortality ROC-AUC remains around 0.658 versus a real baseline around 0.82).
-    \item Minority-class retention was \textbf{not met} (mortality and LOS F1 values indicate persistent minority-class collapse; see Evaluation section~\ref{sec:mortality-tstr}).
-    \item Privacy diagnostics are \textbf{partially met} as feasibility evidence (no exact-match records and bounded attack scores), but they do \textbf{not} establish formal release assurance on their own.
-\end{itemize}

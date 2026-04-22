@@ -5,7 +5,6 @@ from .datasets import (
     DatasetConfig,
     SplitConfig,
     SweepDefaults,
-    get_dataset_sweep_defaults,
     get_dataset_config,
 )
 
@@ -14,6 +13,5 @@ __all__ = [
     "SweepDefaults",
     "SplitConfig",
     "DATASET_CONFIGS",
-    "get_dataset_sweep_defaults",
     "get_dataset_config",
 ]

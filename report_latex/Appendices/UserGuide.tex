@@ -73,6 +73,7 @@ uv run python scripts/run_sweep.py --dataset mimic
 uv run python scripts/run_sweep.py --dataset challenge2012
 uv run python scripts/run_sweep.py --dataset mimic --reset
 uv run python scripts/run_sweep.py --dataset mimic --profile smoke
+uv run python scripts/run_sweep.py --dataset mimic --n-jobs 8
 \end{verbatim}
 
 \textbf{Outputs (MIMIC):}
@@ -113,6 +114,7 @@ Key options:
 \begin{itemize}\tightlist
     \item \texttt{--dataset}: choose \texttt{mimic} or \texttt{challenge2012}.
     \item \texttt{--profile}: choose \texttt{full} or \texttt{smoke}; forwarded to the dataset-specific sweep driver.
+    \item \texttt{--n-jobs}: override CPU worker count used during the sweep stage.
     \item \texttt{--reset}: clear generated data, preprocessors, cache and sweep outputs before rerun.
 \end{itemize}
 

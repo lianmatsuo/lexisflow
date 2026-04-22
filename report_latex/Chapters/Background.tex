@@ -101,6 +101,9 @@ MIMIC-Extract \cite{wang2020mimicextract} provides a standardised pipeline that 
 \subsubsection{Relevance to This Project}
 The choice of MIMIC-III via MIMIC-Extract provides a well-studied, high-dimensional, mixed-type clinical dataset with known properties and established benchmarks. It also imposes specific data-governance obligations (credentialing, data use agreement) that are addressed in the legal and ethical analysis of this report.
 
+\subsubsection{Second Dataset: PhysioNet Challenge 2012}
+To test pipeline portability beyond a single credentialed source, this project also includes the PhysioNet/Computing in Cardiology Challenge 2012 set-A cohort \cite{silva2012challenge}. In contrast to MIMIC-III's broad hospital EHR coverage, Challenge 2012 is a narrower ICU benchmark centred on the first 48 hours, with static demographics, hourly clinical measurements, and in-hospital outcome labels. Within this dissertation, Challenge 2012 is used as the second dataset for reproducibility and cross-dataset method validation under the same downstream training and evaluation stack.
+
 \subsection{Existing Synthetic Tabular and EHR Generators}
 This project evaluates HS3F and ForestFlow directly, with CTGAN as a practical lower-bound reference within the same data and metric pipeline. Other families (diffusion and transformer generators) are discussed as context for trade-offs rather than as implemented competitors.
 

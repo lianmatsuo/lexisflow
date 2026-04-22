@@ -12,7 +12,6 @@ from .ctgan_adapter import CTGANAdapter
 from .iterator import FlowMatchingDataIterator
 from .sampling import (
     sample_trajectory,
-    sample_trajectory_with_initial_sampling,
     prepare_training_data_from_trajectories,
 )
 
@@ -24,6 +23,5 @@ __all__ = [
     "FlowMatchingDataIterator",
     # Sampling
     "sample_trajectory",
-    "sample_trajectory_with_initial_sampling",
     "prepare_training_data_from_trajectories",
 ]

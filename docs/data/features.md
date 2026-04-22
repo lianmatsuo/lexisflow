@@ -1,223 +1,69 @@
-# Static vs Dynamic Features
+# Feature Semantics (Implemented)
 
-Understanding the difference between static and dynamic features is crucial for autoregressive modeling.
+This page documents how features are handled in current preprocessing code.
 
-## Static Features (28 columns)
+## Static vs Dynamic Split
 
-**Definition:** Patient characteristics that don't change over time during the ICU stay.
+The split is determined by code, not hardcoded markdown lists:
 
-### Categories
+- helper: `lexisflow.data.split_static_dynamic`
+- callers:
+  - `scripts/mimic/prepare_hour0.py`
+  - `scripts/mimic/prepare_autoregressive.py`
 
-#### Demographics (3)
-```
-gender, ethnicity, age
-```
-- Fixed at admission
-- Used for conditioning in autoregressive models
+## Autoregressive Layout
 
-#### Admission Information (4)
-```
-insurance, diagnosis_at_admission, admission_type, first_careunit
-```
-- Determined at hospital entry
-- Remain constant throughout stay
+Autoregressive rows are built with lag-1 pairs using:
 
-#### Outcomes (4)
-```
-mort_icu, mort_hosp, hospital_expire_flag, readmission_30
-```
-- ⚠️ **Caution:** These are future information
-- Consider excluding from conditioning or treating as separate targets
+- `lexisflow.data.prepare_autoregressive_data`
 
-#### Other Static (17)
-- Code status flags
-- Admission/discharge timestamps
-- Hospital stay metadata
+Conceptually:
 
-### Usage in Models
+- targets: current-step dynamic features
+- conditions: static features + lagged dynamic features (`*_lag1`)
 
-```python
-# Static features are used for conditioning
-P(X_t | X_{t-1}, Static_Features)
-           ↑           ↑
-      dynamic      static (constant)
-```
+This structure is used by sweep training in `src/lexisflow/sweep/training.py`.
 
-## Dynamic Features (326 columns)
+## IDs and Time Columns
 
-**Definition:** Measurements that change over time (hourly observations).
+Core grouping columns:
 
-### Categories
+- `subject_id`
+- `hours_in`
 
-#### Interventions
-- **Ventilation** (2 cols): vent, nivdurations
-- **Vasopressors** (8+ cols): vaso, norepinephrine, dopamine, etc.
-- **Medications** (many cols): Various drug administrations
+MIMIC also carries additional IDs where available
+(`hadm_id`, `icustay_id`) in processed CSVs.
 
-#### Vital Signs
-- Heart rate, blood pressure, temperature
-- Respiratory rate, SpO2
-- Glasgow Coma Scale components
+ID columns are preserved in CSV artifacts for grouping and bookkeeping and are
+not treated as predictive targets.
 
-#### Lab Values (100+ cols)
-- Chemistry: sodium, potassium, glucose, lactate, etc.
-- Hematology: WBC, hemoglobin, platelets
-- Coagulation: PT, PTT, INR
-- Liver: bilirubin, ALT, AST
-- Renal: creatinine, BUN
+## Datetime and Pruning Policy
 
-#### Fluid Balance
-- **Inputs**: crystalloid_bolus, colloid_bolus
-- **Outputs**: urine output, drainage volumes
+MIMIC preprocessing drops configured datetime columns:
 
-### Usage in Models
+- constant list: `lexisflow.data.DEFAULT_DATETIME_COLUMNS`
 
-```python
-# Dynamic features are predicted
-P(Dynamic_Features_t | Dynamic_Features_{t-1}, Static)
-        ↑                        ↑
-    targets              lagged history
-```
+MIMIC preprocessing also applies shared feature pruning:
 
-## Autoregressive Data Structure
+- function: `lexisflow.data.columns_to_drop_default_feature_pruning`
 
-### Before Transformation
-```csv
-subject_id, hours_in, hr, bp, age, gender
-1,          0,        80, 120, 65, M
-1,          1,        82, 118, 65, M
-1,          2,        79, 115, 65, M
-```
+## Binary/Categorical/Numeric Handling
 
-### After `prepare_autoregressive_data()`
-```csv
-hours_in, hr, bp, age, gender, hr_lag1, bp_lag1
-0,        80, 120, 65, M,      -1,      -1       # no history
-1,        82, 118, 65, M,      80,      120      # lag from t=0
-2,        79, 115, 65, M,      82,      118      # lag from t=1
-```
+Feature typing utilities live in:
 
-**Target columns:** `['hr', 'bp']` (dynamic)
-**Condition columns:** `['age', 'gender', 'hr_lag1', 'bp_lag1']` (static + lags)
+- `src/lexisflow/data/feature_utils.py`
 
-## Loading Features
+Transformers and model preprocessing are implemented in:
 
-### Automatic Detection
+- `src/lexisflow/data/transformers.py`
 
-```python
-from lexisflow.data.autoregressive import split_static_dynamic
+## Outcome Labels Used by Evaluation
 
-df = pd.read_csv("data/processed/flat_table.csv")
-static_cols, dynamic_cols = split_static_dynamic(df)
+The current TSTR framework evaluates:
 
-print(f"Static: {len(static_cols)}")    # 28
-print(f"Dynamic: {len(dynamic_cols)}")  # 326
-```
+- mortality (`hospital_expire_flag`)
+- ICU LOS (`los_icu` converted to categories in the evaluation stack)
 
-### Manual Specification
+Implementation:
 
-```python
-# Define static columns explicitly
-static_cols = [
-    'gender', 'ethnicity', 'age',
-    'insurance', 'admission_type', 'first_careunit'
-]
-
-# All others are dynamic
-exclude = ['subject_id', 'hadm_id', 'icustay_id', 'hours_in']
-dynamic_cols = [c for c in df.columns
-                if c not in static_cols + exclude]
-```
-
-## Feature Engineering Tips
-
-### 1. Exclude Outcome Variables
-
-Outcome variables are "future information":
-
-```python
-# Remove outcomes from static features
-outcomes = ['mort_icu', 'mort_hosp', 'hospital_expire_flag']
-static_cols = [c for c in static_cols if c not in outcomes]
-```
-
-### 2. Handle Timestamps
-
-Timestamps (admittime, dischtime) may need special handling:
-
-```python
-# Option 1: Exclude timestamps
-static_cols = [c for c in static_cols if 'time' not in c.lower()]
-
-# Option 2: Convert to numeric (hours since admission)
-df['hours_since_admit'] = (df['current_time'] - df['admittime']).dt.total_seconds() / 3600
-```
-
-### 3. Categorize Lab Values
-
-Group related labs:
-
-```python
-chemistry_labs = ['sodium', 'potassium', 'chloride', 'bicarbonate']
-renal_labs = ['creatinine', 'bun', 'gfr']
-liver_labs = ['bilirubin', 'alt', 'ast', 'alp']
-```
-
-### 4. Handle Missing Values
-
-Different strategies:
-
-```python
-# Preprocessing handles missing values
-preprocessor = TabularPreprocessor(
-    numeric_cols=numeric_cols,
-    categorical_cols=categorical_cols,
-    max_missing_ratio=None  # XGBoost handles NaNs natively
-)
-```
-
-## Common Pitfalls
-
-### ❌ Wrong: Treating Dynamic as Static
-
-```python
-# BAD: heart_rate doesn't stay constant!
-static_cols = ['age', 'gender', 'heart_rate']
-```
-
-### ✅ Correct: Proper Categorization
-
-```python
-# GOOD: Only truly static features
-static_cols = ['age', 'gender', 'admission_type']
-dynamic_cols = ['heart_rate', 'blood_pressure', ...]
-```
-
-### ❌ Wrong: Including IDs as Features
-
-```python
-# BAD: IDs are not features
-feature_cols = ['subject_id', 'age', 'heart_rate']
-```
-
-### ✅ Correct: Exclude IDs
-
-```python
-# GOOD: IDs used only for grouping
-id_cols = ['subject_id', 'hadm_id', 'icustay_id']
-feature_cols = [c for c in df.columns if c not in id_cols + ['hours_in']]
-```
-
-## Validation Checklist
-
-- [ ] Static columns don't change over time for same patient
-- [ ] Dynamic columns vary across timesteps
-- [ ] No IDs in feature columns
-- [ ] Outcome variables handled appropriately
-- [ ] Timestamps converted or excluded
-- [ ] Missing values strategy defined
-
-## References
-
-- [MIMIC-III Schema](mimic-schema.md)
-- [Data Processing](processing.md)
+- `src/lexisflow/evaluation/tstr_framework.py`

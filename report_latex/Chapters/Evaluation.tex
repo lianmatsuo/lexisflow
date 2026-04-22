@@ -4,7 +4,7 @@
 \section{Software Testing}
 %==============================================================================
 
-The evaluation subsystem is verified with deterministic unit tests before computationally expensive sweeps are executed. The tests, implemented with \code{pytest} in \code{src/synth\_gen/evaluation/tests/}, target metric correctness, edge-case handling, and report-schema stability \cite{pytestProject}.
+The evaluation subsystem is verified with deterministic unit tests before computationally expensive sweeps are executed. The tests, implemented with \code{pytest} in \code{src/lexisflow/evaluation/tests/}, target metric correctness, edge-case handling, and report-schema stability \cite{pytestProject}.
 
 \subsection{Quality-Metric Tests}
 
@@ -173,7 +173,7 @@ This section is written as a response-surface analysis, not as a pure hyperparam
 
 \subsection{Scope and Caveats}
 
-The analysis below covers the Fibonacci-scale grid $n_t, n_{\text{noise}} \in \{1, 2, 3, 5, 8, 13, 21, 34\}$. In the canonical CSV snapshot used for this chapter, $62$ of $64$ cells are complete; the $n_t{=}21$ row is fully populated, while the $n_t{=}34$ row has six populated cells ($n_{\text{noise}} \in \{1,2,3,5,8,13\}$) with two remaining unfilled cells ($n_{\text{noise}} \in \{21,34\}$). Statements about the high-$n_t$/high-$n_{\text{noise}}$ corner are therefore cautious.
+The analysis below covers the Fibonacci-scale grid $n_t, n_{\text{noise}} \in \{1, 2, 3, 5, 8, 13, 21, 34\}$. In the canonical CSV snapshot used for this chapter, all $64$ of $64$ cells are complete. This removes the previous high-$n_t$/high-$n_{\text{noise}}$ corner uncertainty and allows direct interpretation of the full measured grid.
 
 The main HS3F grid is aggregated over three trajectory seeds per cell. This reduces single-seed volatility, but with only three seeds the uncertainty bands should still be read as indicative rather than definitive.
 
@@ -184,11 +184,11 @@ A structural caveat applies throughout: the real-model TSTR baselines (mortality
 
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{sweep_heatmap.png}
-\caption{Mortality TSTR ROC-AUC across the sweep grid (left) and the gap against the real-trained baseline (right). White cells are not yet populated.}
+\caption{Mortality TSTR ROC-AUC across the sweep grid (left) and the gap against the real-trained baseline (right).}
 \label{fig:sweep_mort_roc}
 \end{figure}
 
-ROC-AUC is the most scientifically informative mortality metric in this regime because (i) the cohort is class-imbalanced and (ii) the synthetic-trained classifier frequently collapses to near-constant predictions, which inflates or deflates threshold-dependent metrics. Figure~\ref{fig:sweep_mort_roc} shows a clean monotone signal in $n_t$: marginal-mean ROC-AUC rises from $0.518$ at $n_t{=}1$ through $0.618$ at $n_t{=}13$ to $0.637$ at $n_t{=}34$ (the latter averaged over six populated $n_{\text{noise}}$ cells). Across the $n_{\text{noise}}$ axis the same row is essentially flat (marginal means differ by $< 0.03$ between $n_{\text{noise}}{=}1$ and $n_{\text{noise}}{=}34$, with no monotone trend). The best observed cell mean is $0.658$ at $(n_t{=}21, n_{\text{noise}}{=}1)$; the gap-to-real panel mirrors the $n_t$ trend, narrowing from $\approx -0.35$ at the sparsest cell to $\approx -0.16$ at the best cell, but never closing.
+ROC-AUC is the most scientifically informative mortality metric in this regime because (i) the cohort is class-imbalanced and (ii) the synthetic-trained classifier frequently collapses to near-constant predictions, which inflates or deflates threshold-dependent metrics. Figure~\ref{fig:sweep_mort_roc} shows a clean monotone signal in $n_t$: marginal-mean ROC-AUC rises from $0.518$ at $n_t{=}1$ through $0.618$ at $n_t{=}13$ to $0.638$ at $n_t{=}34$. Across the $n_{\text{noise}}$ axis the trend is still flat (marginal means differ by only $\approx 0.026$ between the best and worst $n_{\text{noise}}$ bands, with no monotone pattern). The best observed cell mean is now $0.659$ at $(n_t{=}34, n_{\text{noise}}{=}21)$, while the smallest gap-to-real cell is $(n_t{=}21, n_{\text{noise}}{=}1)$ at $-0.165$. The gap-to-real panel mirrors the $n_t$ trend, narrowing from $\approx -0.35$ at the sparsest cell to $\approx -0.17$ at the best region, but never closing.
 
 The interpretation is that $n_t$ controls the fidelity of the flow-matching integration path: with too few integration steps the target distribution is under-fit and predictors trained on the resulting samples carry almost no class signal. $n_{\text{noise}}$ controls the number of noise anchors per training row, which in principle should regularise the score-matching objective, but in this pipeline the downstream TSTR task is dominated by bias, not variance: adding noise anchors cannot rescue a mis-integrated velocity field. This is an architectural rather than a hyperparameter finding, and it implies that spending compute on larger $n_{\text{noise}}$ is poor value unless $n_t$ is already in the saturated region.
 
@@ -198,7 +198,7 @@ The interpretation is that $n_t$ controls the fidelity of the flow-matching inte
 \label{fig:sweep_mort_f1}
 \end{figure}
 
-F1 on the mortality task (Figure~\ref{fig:sweep_mort_f1}) tells a more pessimistic story: values sit in $0.04$--$0.23$ against a real-model baseline of $\approx 0.47$, and the gap barely closes with $n_t$. This is consistent with a synthetic generator that preserves \emph{rank ordering} (which ROC-AUC measures) but systematically mis-calibrates the decision threshold. In other words, the synthetic mortality signal is directionally correct but the positive class is under-represented in the synthetic joint distribution, so the classifier's optimal operating point is pushed into a low-precision regime. The accuracy and balanced-accuracy heatmaps (not reproduced in full; \code{sweep\_accuracy\_heatmap.png} and \code{sweep\_balanced\_accuracy\_heatmap.png}) corroborate this: raw accuracy swings between $0.10$ and $0.85$ depending on which class the classifier defaults to, while balanced accuracy stays in $0.49$--$0.60$, just above chance. The only metric from this family worth reading for model selection is ROC-AUC; the others are structurally unstable under class-collapse behaviour.
+F1 on the mortality task (Figure~\ref{fig:sweep_mort_f1}) tells a more pessimistic story: values sit in $0.04$--$0.25$ against a real-model baseline of $\approx 0.47$--$0.49$, and the gap barely closes with $n_t$. This is consistent with a synthetic generator that preserves \emph{rank ordering} (which ROC-AUC measures) but systematically mis-calibrates the decision threshold. In other words, the synthetic mortality signal is directionally correct but the positive class is under-represented in the synthetic joint distribution, so the classifier's optimal operating point is pushed into a low-precision regime. The accuracy and balanced-accuracy heatmaps (not reproduced in full; \code{sweep\_accuracy\_heatmap.png} and \code{sweep\_balanced\_accuracy\_heatmap.png}) corroborate this: raw accuracy swings between $0.10$ and $0.85$ depending on which class the classifier defaults to, while balanced accuracy stays in $0.48$--$0.60$, just above chance. The only metric from this family worth reading for model selection is ROC-AUC; the others are structurally unstable under class-collapse behaviour.
 
 \subsection{LOS TSTR: ROC-AUC, Macro-F1, Accuracy}
 
@@ -214,7 +214,7 @@ F1 on the mortality task (Figure~\ref{fig:sweep_mort_f1}) tells a more pessimist
 \label{fig:sweep_los_roc}
 \end{figure}
 
-Length-of-stay is a multi-class problem and is substantially harder than mortality. Macro-F1 (Figure~\ref{fig:sweep_los_f1}) stays in $0.17$--$0.38$ across the entire populated grid against a real-model baseline of $\approx 0.77$, a gap of $-0.4$ to $-0.6$ that is materially larger than the mortality gap in absolute terms. Unlike mortality ROC-AUC there is no clean monotone trend in $n_t$: the best cells ($n_{\text{noise}}{=}2$, $n_t{=}13$--$21$: macro-F1 $\approx 0.35$--$0.38$) are not adjacent to each other and are within CI95 of much weaker cells, suggesting that these peaks are seed-level fluctuations rather than genuine optima. The LOS ROC-AUC heatmap (Figure~\ref{fig:sweep_los_roc}) is smoother and shows a weaker version of the mortality-AUC trend, ranging $0.12$--$0.70$ with higher values loosely clustered at moderate $n_t$, but still far from the real baseline.
+Length-of-stay is a multi-class problem and is substantially harder than mortality. Macro-F1 (Figure~\ref{fig:sweep_los_f1}) stays in $0.16$--$0.39$ across the entire grid against a real-model baseline of $\approx 0.77$, a gap of $-0.4$ to $-0.6$ that is materially larger than the mortality gap in absolute terms. Unlike mortality ROC-AUC there is no clean monotone trend in $n_t$: the highest cells are scattered and remain within broad CI95 bands of weaker regions, suggesting seed-level fluctuations rather than genuine sharp optima. The LOS ROC-AUC heatmap (Figure~\ref{fig:sweep_los_roc}) is smoother and shows a weaker version of the mortality-AUC trend, ranging $0.11$--$0.69$ with higher values loosely clustered at moderate $n_t$, but still far from the real baseline.
 
 Three mechanisms plausibly drive this. First, LOS categorisation depends on trajectory \emph{length} and \emph{terminal-phase dynamics}; the fixed 48-hour generation window truncates or pads every real stay to the same length and therefore destroys the primary signal the real-model classifier exploits (the stay-length-KS metric in section~\ref{sec:sweep_quality} confirms this directly). Second, LOS categories are imbalanced and macro-F1 penalises per-class collapse, so any synthetic data that under-represents short or long stays is punished more heavily than in the binary mortality task. Third, the trajectory-level classifier flattens padded sequences into a fixed-length feature vector, this is adequate when the dynamic signal is strong, but LOS depends on subtle late-sequence patterns that a linear model only partially recovers from flat features.
 
@@ -229,9 +229,9 @@ Practically, this means the pipeline as constituted is not a viable LOS-predicti
 \label{fig:sweep_quality}
 \end{figure}
 
-Figure~\ref{fig:sweep_quality} is the most structurally revealing figure of the sweep and warrants close reading. The KS panel is almost flat: values sit at $0.61$--$0.64$ across the entire grid, moving by at most $0.03$ between best and worst cells. A KS of $\approx 0.62$ means that for the median numeric feature, the maximum gap between real and synthetic CDFs is $62$ percentage points; for reference, two samples drawn from the same distribution would give $\approx 0.02$ at this sample size. The generator is therefore not close to marginal-distribution parity on most continuous features, and increasing $n_t$ or $n_{\text{noise}}$ does not help.
+Figure~\ref{fig:sweep_quality} is the most structurally revealing figure of the sweep and warrants close reading. The KS panel is almost flat: values sit at $0.606$--$0.643$ across the entire grid, moving by only $\approx 0.038$ between best and worst cells. A KS of $\approx 0.62$ means that for the median numeric feature, the maximum gap between real and synthetic CDFs is roughly sixty percentage points; for reference, two samples drawn from the same distribution would give $\approx 0.02$ at this sample size. The generator is therefore not close to marginal-distribution parity on most continuous features, and increasing $n_t$ or $n_{\text{noise}}$ does not help.
 
-The correlation-preservation panel \emph{does} improve with $n_t$, dropping from a Frobenius norm of $\approx 18.4$ at $n_t{=}1$ to $\approx 14.4$ at $n_t{=}21$. This is consistent with the hypothesis that short integration paths collapse the joint onto its marginals, destroying cross-feature structure, and that additional $n_t$ steps recover pairwise relationships even when marginal fit stays weak. Again $n_{\text{noise}}$ is nearly irrelevant.
+The correlation-preservation panel \emph{does} improve with $n_t$, dropping from a Frobenius norm of $\approx 18.4$ at $n_t{=}1$ to about $14.0$ at the best measured cell $(n_t{=}34, n_{\text{noise}}{=}2)$. This is consistent with the hypothesis that short integration paths collapse the joint onto its marginals, destroying cross-feature structure, and that additional $n_t$ steps recover pairwise relationships even when marginal fit stays weak. Again $n_{\text{noise}}$ is nearly irrelevant.
 
 The clinical-range-violation panel is the hardest finding in this figure: violation rates sit at $52\%$--$72\%$ across every cell. More than half of synthetic rows have at least one vital sign outside the physiologic window encoded in the clinical-range table. This is not a TSTR-level problem that better classifiers can work around; it is a deployment-blocker. Two likely mechanisms: (i) the preprocessing pipeline normalises by cohort mean/std but does not clip to clinical bounds, so the flow-matching model is free to sample in the tails; (ii) the loss function has no range-awareness. The violation rate \emph{does} decrease with $n_t$ (from $\approx 72\%$ at $n_t{=}1$ to a best of $\approx 52\%$ at $(n_t{=}21, n_{\text{noise}}{=}2)$), so more integration steps soften the issue, but no populated cell reaches a deployable threshold.
 
@@ -253,7 +253,7 @@ The transition-smoothness ratio panel shows the opposite: strong dependence on $
 \label{fig:sweep_temporal_corr}
 \end{figure}
 
-Figure~\ref{fig:sweep_temporal_corr} complements the transition panel. Autocorrelation distance is lowest ($0.10$--$0.12$) in the $n_t{=}3$--$5$ band and rises at both extremes: at $n_t{=}1$ the autoregressive model produces over-smooth trajectories with high lag-1 correlation, and at $n_t{\geq}8$ the high-variance noise injection discussed above destroys short-range dependency. The cross-feature correlation drift panel shows a similar U-shape with best values around $n_t{=}3$--$5$. This is a direct empirical signal that the production configuration $(50, 100)$ will \emph{not} sit in the sweet spot for temporal coherence: both metrics should be expected to degrade beyond $n_t{=}21$ unless a smoothness term is added.
+Figure~\ref{fig:sweep_temporal_corr} complements the transition panel. Autocorrelation distance is lowest ($\approx 0.10$) at moderate $n_t$ and rises toward both low and high extremes, with the clearest minimum around the $n_t{=}3$ region in marginal trends. The cross-feature correlation-drift panel is less U-shaped in the completed grid; it generally improves as $n_t$ increases and reaches its best observed value at $(n_t{=}21, n_{\text{noise}}{=}1)$. Read together, these panels indicate a trade-off within temporal coherence itself: higher $n_t$ helps cross-feature coupling but can still inflate transition roughness. The production configuration $(50, 100)$ should therefore be expected to preserve cross-feature drift better than low-$n_t$ settings while further worsening transition smoothness unless an explicit smoothness term is added.
 
 \subsection{Privacy Metrics: DCR, Baseline Protection, Membership Inference}
 
@@ -279,9 +279,9 @@ Fourth, privacy metrics are the \emph{only} family in the sweep where the trend 
 \label{fig:sweep_time}
 \end{figure}
 
-Figure~\ref{fig:sweep_time} shows cost scaling. The right panel is nearly a pencil of straight lines through the origin: for each fixed $n_t$, training time is approximately linear in $n_{\text{noise}}$, as expected because the noise-anchor loop is the inner-most loop in the training step. The left panel is super-linear in $n_t$ for large $n_{\text{noise}}$ but approximately linear for small $n_{\text{noise}}$. A bilinear least-squares fit $T \approx 27.97\,n_t n_{\text{noise}} - 19.73\,n_t + 29.26\,n_{\text{noise}} + 109.1$ (seconds) explains $R^2{=}0.947$ of the variance. The dominant term $n_t n_{\text{noise}}$ captures the correct leading-order scaling but slightly underestimates at large $n_t$, where the autoregressive module exhibits additional memory-bound overhead visible as the $n_{\text{noise}}{=}34$ curve departing above the others at $n_t{=}13$. The split view \code{sweep\_training\_time\_split.png} confirms that this departure comes from the autoregressive module, not from hour-0.
+Figure~\ref{fig:sweep_time} shows cost scaling. The right panel is nearly a pencil of straight lines through the origin: for each fixed $n_t$, training time is approximately linear in $n_{\text{noise}}$, as expected because the noise-anchor loop is the inner-most loop in the training step. The left panel is super-linear in $n_t$ for large $n_{\text{noise}}$ but approximately linear for small $n_{\text{noise}}$. A bilinear least-squares fit on the completed grid gives $T \approx 50.87\,n_t n_{\text{noise}} - 102.06\,n_t - 101.65\,n_{\text{noise}} + 642.54$ (seconds), with $R^2{=}0.901$. The dominant term is still $n_t n_{\text{noise}}$, but the lower $R^2$ on the full grid highlights stronger non-linear overheads in the high-cost corner. The split view \code{sweep\_training\_time\_split.png} confirms that this departure comes from the autoregressive module, not from hour-0.
 
-Two consequences. First, the most expensive completed cell is $n_t{=}21, n_{\text{noise}}{=}34$ at $\approx 6.0$ hours ($21{,}456$\,s); at the time of writing, the only unfilled cells are the high-cost corner points $(34,21)$ and $(34,34)$, both projected to exceed this runtime. Second, the \emph{marginal} cost of doubling $n_t$ at high $n_{\text{noise}}$ is not rewarded by proportional utility gains: going from $n_t{=}8$ to $n_t{=}21$ triples compute but moves marginal-mean ROC-AUC from $\approx 0.617$ to $\approx 0.629$, a change well inside seed-level CI95.
+Two consequences. First, the most expensive measured cell is now $(n_t, n_{\text{noise}})=(34,34)$ at $\approx 18.9$ hours ($68{,}037$\,s). Second, the \emph{marginal} cost of increasing $n_t$ at high $n_{\text{noise}}$ is not rewarded by proportional utility gains: going from $n_t{=}21$ to $n_t{=}34$ in the high-noise corner adds tens of thousands of seconds but only moves marginal-mean ROC-AUC from $\approx 0.629$ to $\approx 0.638$, a change inside broad seed-level CI95 overlap.
 
 \subsection{Uncertainty Structure}
 
@@ -303,15 +303,15 @@ The matched-cell three-seed protocol is useful for uncertainty awareness, but it
 \label{fig:sweep_extrap}
 \end{figure}
 
-Figure~\ref{fig:sweep_extrap} is the extrapolation plot produced by the sweep-plotting utility. This is used as a secondary sensitivity exercise after the in-grid effect analysis above, not as the main evidence base. Because the prediction depends sensitively on the assumed functional form, three plausible saturating models are fit to the $n_t$-marginalised ROC-AUC series (including the fully populated $n_t{=}21$ row and the currently populated $n_t{=}34$ cells) and report all three:
+Figure~\ref{fig:sweep_extrap} is the extrapolation plot produced by the sweep-plotting utility. This is used as a secondary sensitivity exercise after the in-grid effect analysis above, not as the main evidence base. Because the prediction depends sensitively on the assumed functional form, three plausible saturating models are fit to the $n_t$-marginalised ROC-AUC series from the fully populated grid and report all three:
 
 \begin{itemize}
-    \item Exponential saturation $y = a - b\,e^{-c\,n_t}$: asymptote $a=0.637$, so $\hat{y}(n_t{=}50) \approx \hat{y}(n_t{\to}\infty) = 0.637$.
-    \item Power decay $y = a - b\,n_t^{-c}$: $\hat{y}(n_t{=}50) = 0.661$, $\hat{y}(n_t{=}100) = 0.679$.
-    \item Logarithmic $y = a + b\log n_t$: $\hat{y}(n_t{=}50) = 0.672$, $\hat{y}(n_t{=}100) = 0.700$.
+    \item Exponential saturation $y = a - b\,e^{-c\,n_t}$: asymptote $a \approx 0.633$, so $\hat{y}(n_t{=}50) \approx \hat{y}(n_t{\to}\infty)$.
+    \item Power decay $y = a - b\,n_t^{-c}$: $\hat{y}(n_t{=}50) \approx 0.654$, $\hat{y}(n_t{=}100) \approx 0.668$.
+    \item Logarithmic $y = a + b\log n_t$: $\hat{y}(n_t{=}50) \approx 0.667$, $\hat{y}(n_t{=}100) \approx 0.695$.
 \end{itemize}
 
-(The exponential asymptote sits below the best individual-cell value because the three saturating forms are fit to the $n_t$-marginalised mean ROC-AUC, which averages away single-cell variation in the $n_{\text{noise}}$ axis.) The three forms agree to within $\pm 0.02$ on the existing grid and diverge only in the extrapolation region. The exponential fit best matches the observation that marginal-mean ROC-AUC moved by only $\approx 0.011$ between $n_t{=}13$ and $n_t{=}21$; the logarithmic fit is optimistic because it assumes unbounded (if slow) growth, and the populated $n_t{=}34$ cells sit slightly above the exponential asymptote but inside the logarithmic prediction. The honest middle estimate for production mortality ROC-AUC is therefore $\hat{\text{ROC-AUC}} = 0.65 \pm 0.04$, with the lower end more likely if the curve has genuinely saturated. Under no form does the extrapolation close the gap to the real-trained baseline ($0.82$).
+(The exponential asymptote sits below the best individual-cell value because the three saturating forms are fit to the $n_t$-marginalised mean ROC-AUC, which averages away single-cell variation in the $n_{\text{noise}}$ axis.) The three forms agree closely on the measured grid and diverge only in the extrapolation region. The exponential fit best matches the observation that marginal-mean ROC-AUC moved by only $\approx 0.009$ between $n_t{=}21$ and $n_t{=}34$; the logarithmic fit is optimistic because it assumes unbounded (if slow) growth. The honest middle estimate for production mortality ROC-AUC is therefore still around $\hat{\text{ROC-AUC}} \approx 0.65 \pm 0.02$. Under no form does the extrapolation close the gap to the real-trained baseline ($0.82$).
 
 $n_{\text{noise}}$ extrapolation is simpler: the $n_{\text{noise}}$-marginalised curve is flat within seed noise across the populated grid, so $n_{\text{noise}}{=}100$ is not expected to change utility by more than a few thousandths. The same logic applies to quality and privacy metrics.
 
@@ -323,16 +323,16 @@ Applying analogous fits to the other metric families gives indicative production
 \toprule
 Metric & Best measured & Predicted at $(50, 100)$ & Real-model reference \\
 \midrule
-Mortality ROC-AUC       & $0.658$ ($n_t{=}21, n_{\text{noise}}{=}1$) & $0.65 \pm 0.04$ & $0.82$ \\
-Mortality F1            & $0.226$ ($n_t{=}21, n_{\text{noise}}{=}13$) & $0.22 \pm 0.03$ & $0.47$ \\
-LOS macro-F1            & $0.384$ ($n_t{=}13, n_{\text{noise}}{=}2$) & $0.30 \pm 0.05$ & $0.77$ \\
-Avg KS statistic        & $0.603$ ($n_t{=}13$)    & $0.61 \pm 0.02$    & $\approx 0$ \\
-Correlation Frobenius   & $14.25$ ($n_t{=}13$)    & $14.3 \pm 0.5$     & $\approx 0$ \\
+Mortality ROC-AUC       & $0.659$ ($n_t{=}34, n_{\text{noise}}{=}21$) & $0.65 \pm 0.02$ & $0.82$ \\
+Mortality F1            & $0.246$ ($n_t{=}34, n_{\text{noise}}{=}21$) & $0.22 \pm 0.03$ & $0.47$ \\
+LOS macro-F1            & $0.394$ ($n_t{=}34, n_{\text{noise}}{=}3$) & $0.30 \pm 0.05$ & $0.77$ \\
+Avg KS statistic        & $0.606$ ($n_t{=}34, n_{\text{noise}}{=}21$)    & $0.61 \pm 0.02$    & $\approx 0$ \\
+Correlation Frobenius   & $13.99$ ($n_t{=}34, n_{\text{noise}}{=}2$)    & $14.3 \pm 0.5$     & $\approx 0$ \\
 Range violation \%      & $52.45$ ($n_t{=}21, n_{\text{noise}}{=}2$) & $53 \pm 3$ & $0$ \\
-Transition MSE ratio    & $1.19$ ($n_t{=}1$)      & $\sim 7$--$9$ (degraded) & $1.00$ \\
-DCR median              & $19.6$ ($n_t{=}21$)     & $\sim 19$ (slightly worse privacy) & ,  \\
-MIA ROC-AUC             & $0.594$ ($n_t{=}1$)     & $\sim 0.60$ (slightly worse privacy) & $0.50$ (random) \\
-Training time (single cell) & $21{,}456$\,s ($n_t{=}21, n_{\text{noise}}{=}34$) & $\approx 60$\,h & ,  \\
+Transition MSE ratio    & $1.04$ ($n_t{=}1, n_{\text{noise}}{=}2$)      & $\sim 7$--$9$ (degraded) & $1.00$ \\
+DCR median              & $19.42$ ($n_t{=}34, n_{\text{noise}}{=}1$)     & $\sim 19$ (slightly worse privacy) & ,  \\
+MIA ROC-AUC             & $0.594$ ($n_t{=}1, n_{\text{noise}}{=}1$)     & $\sim 0.60$ (slightly worse privacy) & $0.50$ (random) \\
+Training time (single cell) & $68{,}037$\,s ($n_t{=}34, n_{\text{noise}}{=}34$) & $\approx 66$\,h & ,  \\
 \bottomrule
 \end{tabular}
 \caption{Predicted metric values at the production configuration $(n_t, n_{\text{noise}}){=}(50, 100)$, with best measured value on the current grid and real-model reference for context. Predictions use the honest-middle fit described in the text; $\pm$ intervals are the spread between alternative saturating forms, not formal confidence intervals.}
@@ -420,13 +420,13 @@ Taken together, the matched-cell evidence at $(n_t{=}5, n_{\text{noise}}{=}5)$ i
 \end{itemize}
 
 \paragraph{Caveats on the backbone decision.}
-The backbone-axis evidence rests on a single matched $(n_t, n_{\text{noise}})$ cell with three trajectory seeds. The HS3F main grid is in progress; the ForestFlow and CTGAN full grids are not run. The HS3F--ForestFlow ROC-AUC gap at this cell is not statistically significant, and the backbone ordering on other cells may differ. Main-grid conclusions in this chapter are therefore HS3F-specific by construction; claims transfer to ForestFlow or CTGAN only under the matched-cell comparison. Extending the three-seed matched comparison to the full grid is flagged in \code{docs/project/status.md}; the CSV-level artefacts (\code{results/backbone\_comparison/sweep\_results\_\{hs3f,forest\_flow\_copy,ctgan\}.csv}) already carry the full schema and are ready for the next regeneration pass.
+The backbone-axis evidence rests on a single matched $(n_t, n_{\text{noise}})$ cell with three trajectory seeds. The HS3F main grid is now complete; the ForestFlow and CTGAN full grids are not run. The HS3F--ForestFlow ROC-AUC gap at this cell is not statistically significant, and the backbone ordering on other cells may differ. Main-grid conclusions in this chapter are therefore HS3F-specific by construction; claims transfer to ForestFlow or CTGAN only under the matched-cell comparison. Extending the three-seed matched comparison to the full grid is flagged in \code{docs/project/status.md}; the CSV-level artefacts (\code{results/backbone\_comparison/sweep\_results\_\{hs3f,forest\_flow\_copy,ctgan\}.csv}) already carry the full schema and are ready for the next regeneration pass.
 
 \subsection{Synthesis and Implications}
 
 The main-grid HS3F sweep yields five defensible findings.
 
-First, \textbf{$n_t$ dominates utility but exhibits diminishing returns}. Marginal-mean ROC-AUC gains $\approx 0.10$ between $n_t{=}1$ and $n_t{=}8$, only $\approx 0.013$ more between $n_t{=}8$ and $n_t{=}21$, and a further $\approx 0.019$ at the partially populated $n_t{=}34$ row. The curve is still inching upward but the per-unit-compute yield is collapsing; doubling or quadrupling $n_t$ beyond $n_t{\approx}8$ is a small-gain/large-cost bet, and the three saturating fits agree the residual gap to the real baseline will not close via $n_t$ alone.
+First, \textbf{$n_t$ dominates utility but exhibits diminishing returns}. Marginal-mean ROC-AUC gains $\approx 0.10$ between $n_t{=}1$ and $n_t{=}8$, only $\approx 0.012$ more between $n_t{=}8$ and $n_t{=}21$, and a further $\approx 0.009$ at $n_t{=}34$. The curve is still inching upward but the per-unit-compute yield is collapsing; doubling or quadrupling $n_t$ beyond $n_t{\approx}8$ is a small-gain/large-cost bet, and the three saturating fits agree the residual gap to the real baseline will not close via $n_t$ alone.
 
 Second, \textbf{$n_{\text{noise}}$ does not materially improve any utility, quality, or privacy metric on this grid}. Its only monotone effect is on training time. Setting $n_{\text{noise}}$ to $100$ rather than a small value is therefore hard to justify on evidence; in fact, reducing $n_{\text{noise}}$ to the single-digit range would save roughly an order of magnitude of compute without measurable TSTR loss. The production choice of $n_{\text{noise}}{=}100$ should be revisited with this evidence.
 
@@ -443,7 +443,7 @@ Taken together, the evidence supports running the production configuration as a 
 Against the dissertation objectives and acceptance targets, the evidence in this chapter supports the following judgement:
 \begin{itemize}\tightlist
     \item \textbf{Met (research feasibility):} Tree-based flow matching can be extended to sequential ICU synthesis with a working two-stage system and measurable utility transfer above chance.
-    \item \textbf{Partially met (utility):} Ranking utility improves with $n_t$ and reaches ROC-AUC $0.658$, but the predefined ``within 0.15 ROC-AUC'' target is still missed against the real baseline ($\approx 0.82$).
+    \item \textbf{Partially met (utility):} Ranking utility improves with $n_t$ and reaches ROC-AUC $0.659$, but the predefined ``within 0.15 ROC-AUC'' target is still missed against the real baseline ($\approx 0.82$).
     \item \textbf{Not met (minority retention):} Mortality and LOS F1 remain low across the grid, indicating persistent minority-class collapse.
     \item \textbf{Not met (practical adequacy):} Range violations remain high (best $\approx 52\%$) and stay-length fidelity is structurally poor under fixed-length rollout, so practical release readiness is not demonstrated.
     \item \textbf{Partial and diagnostic only (privacy):} No exact matches and bounded DOMIAS-style AUC provide useful diagnostics, but they do not establish formal privacy release assurance.
@@ -493,7 +493,7 @@ TSTR and quality metrics depend on how real/synthetic splits are formed; any ove
 \paragraph{Single database and pipeline.}
 Results apply to MIMIC-derived hour-0 plus autoregressive ICU rows, the chosen feature set, and the Forest-Flow/HS3F backbones implemented in this work, not to ward workflows, other charting systems, or primary-care EHRs.
 \textbf{Mitigations:} two-stage design and backbone selection document the scope of the generative family.
-\textbf{Gaps:} no cross-cohort or cross-hospital replication; preprocessor and item definitions remain cohort-specific.
+\textbf{Gaps:} cross-hospital replication on the full MIMIC cohort is not attempted; preprocessor and item definitions remain cohort-specific. A cross-dataset replication on the public PhysioNet Challenge 2012 benchmark (section~\ref{sec:challenge2012-eval}) is implemented and currently executing; its numerical results are out of scope for this submission.
 
 \paragraph{Synthetic sample size and conditioning.}
 Conditional generation reuses real conditioning rows in sweep mode; this anchors context but limits exploration of counterfactual trajectories and may hide defects in the conditional model when the condition distribution is narrow.
@@ -502,7 +502,7 @@ Conditional generation reuses real conditioning rows in sweep mode; this anchors
 \subsection{Conclusion validity}
 
 \paragraph{Statistical power and multiplicity.}
-The expanded sweep (currently $62$ completed configurations) repeats each cell across three trajectory seeds and records mean, sample standard deviation, and $95\%$ confidence-interval half-widths for key utility, quality, and privacy metrics.
+The expanded sweep (currently $64$ completed configurations) repeats each cell across three trajectory seeds and records mean, sample standard deviation, and $95\%$ confidence-interval half-widths for key utility, quality, and privacy metrics.
 Scanning several metrics and tasks still raises multiplicity concerns, and with only three seeds per cell the intervals should be treated as uncertainty indicators rather than definitive significance tests.
 \textbf{Mitigations:} resumable \code{sweep\_results.csv}, failure rows preserved, uncertainty columns exported, and overlap-aware interpretation rather than deterministic point-estimate ranking.
 \textbf{Gaps:} larger seed counts, bootstrap CIs, and multiple-comparison discipline are still future work in \code{run\_sweep.py}.
@@ -512,6 +512,19 @@ Scanning several metrics and tasks still raises multiplicity concerns, and with 
 \textbf{Mitigations:} flagged rows are retained, not dropped.
 \textbf{Gaps:} sensitivity analysis for thresholds and correlation with distributional metrics is outstanding.
 
+
+%==============================================================================
+\section{Cross-Dataset Replication on Challenge 2012}
+\label{sec:challenge2012-eval}
+%==============================================================================
+
+To probe pipeline portability beyond MIMIC-III, the implementation additionally targets the open-access PhysioNet Challenge 2012 set-A cohort (4{,}000 ICU patients, 48 hourly bins); the pipeline wiring is documented in section~\ref{sec:challenge2012-impl}. The same sweep grid, TSTR tasks, fidelity metrics, trajectory coherence metrics, and privacy metrics are applied, without any re-implementation, via \code{scripts/run\_sweep.py --dataset challenge2012}.
+
+\paragraph{Status at time of submission.}
+The Challenge 2012 sweep is in progress and intentionally not included in the numerical tables and figures of this chapter. Reporting its outcomes before sweep completion would risk partial-cell results distorting per-metric comparisons with the MIMIC sweep; the unified schema (\code{results/sweep\_results.csv}) is designed to accommodate the new runs without retrofitting the analysis pipeline.
+
+\paragraph{What this benchmark does and does not establish.}
+The Challenge 2012 run is a \emph{methodological} robustness check: it establishes that the generator, preprocessor, and evaluation stack operate on a semantically adjacent cohort (static demographics + hourly vital medians + mortality/LOS labels) under an open data licence, making external reproduction possible. It is not a claim of clinical generalisation; cross-hospital or cross-speciality validity would require additional cohorts outside the scope of this dissertation.
 
 %==============================================================================
 \section{Requirements Verification}
@@ -529,7 +542,7 @@ This section traces each requirement from Chapter~3 to the evidence that verifie
 \toprule
 \textbf{ID} & \textbf{Status} & \textbf{Evidence} \\
 \midrule
-FR1 & Verified & Autoregressive tables produced by \code{scripts/prepare\_autoregressive.py} with lag-1 features and static/dynamic separation; covered by unit tests in \code{src/synth\_gen/preprocessing/tests/}. \\
+FR1 & Verified & Autoregressive tables produced by \code{scripts/prepare\_autoregressive.py} with lag-1 features and static/dynamic separation; covered by unit tests in \code{src/lexisflow/data/tests/}. \\
 \midrule
 FR2 & Verified & Streaming preprocessor artefact written by \code{fit\_autoregressive\_preprocessor}; round-trip inverse-transform tests pass. \\
 \midrule
@@ -537,7 +550,7 @@ FR3 & Verified & Both ForestFlow and HS3F transition models trained via \code{tr
 \midrule
 FR4 & Verified & Synthetic trajectory CSVs generated by \code{generate}; row counts match requested budgets in \code{autoregressive\_trajectories.csv} and backbone-comparison outputs. \\
 \midrule
-FR5 & Verified & KS, correlation Frobenius, and clinical range violation values populated across all $62$ completed sweep cells in \code{results/sweep\_results.csv}; see section~\ref{sec:sweep_quality}. \\
+FR5 & Verified & KS, correlation Frobenius, and clinical range violation values populated across all $64$ completed sweep cells in \code{results/sweep\_results.csv}; see section~\ref{sec:sweep_quality}. \\
 \midrule
 FR6 & Verified & Patient-level multi-task TSTR (mortality + LOS) reported per cell; see mortality and LOS subsections above. \\
 \midrule

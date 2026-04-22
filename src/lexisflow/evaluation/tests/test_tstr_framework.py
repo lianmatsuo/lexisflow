@@ -163,6 +163,29 @@ def test_los_sequence_tstr_runs_end_to_end():
     assert np.isfinite(metrics["real_macro_f1"])
 
 
+def test_los_roc_auc_binary_fallback_when_one_class_missing():
+    task = LOSTask(random_state=0)
+    # Only LOS bins 1 and 2 are present in y_true.
+    y_true = np.array([1, 1, 2, 2, 1, 2], dtype=int)
+    y_pred = y_true.copy()
+    # Three probability columns (bins 0/1/2) still returned by model.
+    y_proba = np.array(
+        [
+            [0.01, 0.85, 0.14],
+            [0.02, 0.80, 0.18],
+            [0.01, 0.20, 0.79],
+            [0.01, 0.15, 0.84],
+            [0.02, 0.75, 0.23],
+            [0.02, 0.25, 0.73],
+        ],
+        dtype=float,
+    )
+
+    metrics = task.compute_metrics(y_true=y_true, y_pred=y_pred, y_proba=y_proba)
+    assert np.isfinite(metrics["roc_auc"])
+    assert metrics["roc_auc"] > 0.9
+
+
 def test_mortality_row_tstr_mode_still_supported():
     synth_df = _build_synthetic_patient_rows(n_patients=60, seed=123).drop(
         columns=["subject_id", "hours_in"]

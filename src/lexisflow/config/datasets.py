@@ -36,7 +36,6 @@ class DatasetConfig:
     transformed_cache_dir: Path
     results_csv: Path
     sweep_models_dir: Path
-    sweep: SweepDefaults
     sweep_profiles: Mapping[str, SweepDefaults]
     split: SplitConfig
 
@@ -79,13 +78,6 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         transformed_cache_dir=Path("artifacts/sweep_cache/transformed_autoregressive"),
         results_csv=Path("results/sweep_results.csv"),
         sweep_models_dir=Path("artifacts/sweep"),
-        sweep=SweepDefaults(
-            nt_values=(1, 2, 3, 5, 8, 13, 21, 34),
-            noise_values=(1, 2, 3, 5, 8, 13, 21, 34),
-            max_train_rows=100000,
-            n_synth_samples=100000,
-            privacy_max_rows=2000,
-        ),
         sweep_profiles={
             "full": SweepDefaults(
                 nt_values=(1, 2, 3, 5, 8, 13, 21, 34),
@@ -122,19 +114,12 @@ DATASET_CONFIGS: dict[str, DatasetConfig] = {
         ),
         results_csv=Path("results/challenge2012_sweep_results.csv"),
         sweep_models_dir=Path("artifacts/challenge2012/sweep"),
-        sweep=SweepDefaults(
-            nt_values=(1, 2, 3, 5, 8, 13, 21, 34),
-            noise_values=(1, 2, 3, 5, 8, 13, 21, 34),
-            max_train_rows=151296,
-            n_synth_samples=48000,
-            privacy_max_rows=2000,
-        ),
         sweep_profiles={
             "full": SweepDefaults(
-                nt_values=(1, 2, 3, 5, 8, 13, 21, 34),
-                noise_values=(1, 2, 3, 5, 8, 13, 21, 34),
-                max_train_rows=151296,
-                n_synth_samples=48000,
+                nt_values=(1, 2, 3, 5, 8, 13, 21),
+                noise_values=(1, 2, 3, 5, 8, 13, 21),
+                max_train_rows=100000,
+                n_synth_samples=50000,
                 privacy_max_rows=2000,
             ),
             "smoke": SweepDefaults(
@@ -158,7 +143,3 @@ def get_dataset_config(dataset: str) -> DatasetConfig:
         raise ValueError(
             f"Unknown dataset '{dataset}'. Expected one of: {known}"
         ) from exc
-
-
-def get_dataset_sweep_defaults(dataset: str, profile: str = "full") -> SweepDefaults:
-    return get_dataset_config(dataset).get_sweep_defaults(profile)

@@ -76,8 +76,11 @@ report_latex/*.aux
 report_latex/*.log
 report_latex/*.out
 report_latex/*.toc
+report_latex/*.synctex.gz
 report_latex/**/*.aux
 report_latex/lexisflow_report.pdf
+texput.log
+lexisflow_report.log
 
 # Cache
 .pytest_cache/

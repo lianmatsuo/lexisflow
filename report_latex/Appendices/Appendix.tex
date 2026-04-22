@@ -4,7 +4,7 @@ This appendix provides additional hyperparameter sweep visualisations and config
 
 \section{Sweep Configuration Space}
 
-The hyperparameter sweep explored a Fibonacci-scale grid of $n_t, n_{\text{noise}} \in \{1, 2, 3, 5, 8, 13, 21, 34\}$, where $n_t$ denotes the number of time levels for flow discretisation and $n_{\text{noise}}$ the number of noise-augmented training duplicates. This yields $8 \times 8 = 64$ configurations in total, of which $62$ were complete in the canonical CSV snapshot used for this draft; the remaining unfilled cells are $(n_t, n_{\text{noise}})=(34,21)$ and $(34,34)$. All runs used the HS3F backbone, three trajectory seeds per cell (\code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS = (42, 11, 50)}), and 50{,}000 autoregressive training rows. Synthetic sample size was matched to the evaluation split for TSTR assessment.
+The hyperparameter sweep explored a Fibonacci-scale grid of $n_t, n_{\text{noise}} \in \{1, 2, 3, 5, 8, 13, 21, 34\}$, where $n_t$ denotes the number of time levels for flow discretisation and $n_{\text{noise}}$ the number of noise-augmented training duplicates. This yields $8 \times 8 = 64$ configurations in total, and the current canonical CSV snapshot is fully complete ($64/64$ cells). All runs used the HS3F backbone, three trajectory seeds per cell (\code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS = (42, 11, 50)}), and 50{,}000 autoregressive training rows. Synthetic sample size was matched to the evaluation split for TSTR assessment.
 
 \section{XGBoost Configuration}
 

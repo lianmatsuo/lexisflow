@@ -70,8 +70,25 @@ The current end-to-end workflow is implemented as numbered scripts with explicit
     \item \code{run\_sweep.py} performs unified hour-0 + autoregressive hyperparameter search.
 \end{enumerate}
 
-The architecture is explicitly two-stage and backbone-selectable (\code{forest-flow} or \code{hs3f}, default \code{hs3f}). Quality and TSTR evaluation are integrated directly into \code{run\_sweep.py}; ad-hoc inspection of specific generated outputs is handled by the helpers in \code{synth\_gen.evaluation}. A dedicated matched-cell driver (\code{run\_backbone\_comparison.py}) executes the same data and metric pipeline for HS3F, ForestFlow, and CTGAN at a fixed comparison cell; results are reported in the Evaluation chapter (section~\ref{sec:backbone-comparison}).
+The architecture is explicitly two-stage and backbone-selectable (\code{forest-flow} or \code{hs3f}, default \code{hs3f}). Quality and TSTR evaluation are integrated directly into \code{run\_sweep.py}; ad-hoc inspection of specific generated outputs is handled by the helpers in \code{lexisflow.evaluation}. A dedicated matched-cell driver (\code{run\_backbone\_comparison.py}) executes the same data and metric pipeline for HS3F, ForestFlow, and CTGAN at a fixed comparison cell; results are reported in the Evaluation chapter (section~\ref{sec:backbone-comparison}).
 This structure was chosen so each sweep row is an auditable end-to-end experiment unit, which is why Chapter~7 can compare utility, fidelity, privacy, and runtime from one consistent log schema.
+
+\subsection{Feature Selection Policy}
+\label{sec:feature-selection-policy}
+
+Feature selection in this project is implemented as a deterministic preprocessing policy rather than as a wrapper method (for example recursive elimination) or an embedded model-importance threshold.
+The objective is to keep clinically meaningful coverage while removing columns that are non-informative, structurally unsuitable for generation, or unstable for the autoregressive interface.
+
+For MIMIC autoregressive preparation (\code{scripts/mimic/prepare\_autoregressive.py}), the selection steps are:
+\begin{enumerate}\tightlist
+    \item Remove columns that are 100\% missing across the source table (identified by a full-file DuckDB scan, cached for reproducibility).
+    \item Remove datetime/timestamp fields (\code{DEFAULT\_DATETIME\_COLUMNS}) that encode logging context rather than physiological state.
+    \item Apply the shared pruning policy (\code{columns\_to\_drop\_default\_feature\_pruning}), which removes known low-value or high-sparsity inputs (including selected biophysical \code{*\_std}/\code{*\_count} derivatives) before autoregressive expansion.
+    \item Partition the retained variables into static and dynamic groups, then construct lag-1 autoregressive rows so current-time dynamic variables become generation targets and static + lagged variables become conditioning features.
+\end{enumerate}
+
+The fitted preprocessor (\code{scripts/mimic/fit\_autoregressive\_preprocessor.py}) then preserves this selected feature set, assigns feature types (numeric, binary, categorical), and stores explicit transformed-space indices for target and condition blocks.
+This makes feature inclusion and model inputs reproducible across runs and explains why later sweep comparisons are interpretable as model/backbone effects rather than ad-hoc column-selection differences.
 
 %==============================================================================
 \section{Training Implementation Details}
@@ -115,7 +132,7 @@ For HS3F categorical dimensions, training remaps observed categories to contiguo
 The training remap yields contiguous class indexing under arbitrary subsampling without sparse multiclass labels at fit time.
 
 For continuous targets under Forest-Flow, sampling follows explicit first-order integration.
-Forest-Flow integrates the backward flow with explicit Euler updates (\code{X\_t += h * Y\_hat}) in \code{src/lexisflow/models/forest\_flow.py}.
+Forest-Flow integrates the learned velocity field from noise to data with explicit forward-Euler updates (\code{X\_t += h * Y\_hat}) in \code{src/lexisflow/models/forest\_flow.py}; this is the standard conditional flow-matching integration path, not the backward (score-based) diffusion formulation.
 HS3F continuous dimensions default to \code{solver="rk4"} in \code{src/lexisflow/models/hs3f.py}, with \code{solver="euler"} available as an alternative.
 
 %==============================================================================
@@ -213,7 +230,7 @@ To complement utility/fidelity metrics, the current implementation adds four pri
     \item Distance to Closest Record (DCR) summary ($\mathrm{median}$, tails, exact-match rate),
     \item DCR baseline-protection score (synthetic-vs-random closeness to real data),
     \item DCR overfitting-protection score (synthetic closeness to train vs holdout),
-    \item DOMIAS-inspired membership inference attack (MIA) ROC-AUC and attacker advantage.
+    \item DOMIAS-inspired membership inference attack (MIA) ROC-AUC, average precision, and attacker advantage.
 \end{enumerate}
 
 For synthetic samples $\tilde{x}_i$ and real training set $\mathcal{D}_{\text{train}}$, DCR is:
@@ -281,8 +298,8 @@ The row payload includes utility metrics, quality metrics, timing fields for bot
 
 Autoregressive transformed arrays are cached by default under \code{models/sweep\_cache/transformed\_autoregressive/} and reloaded when a signature check passes.
 
-The signature dict in \code{metadata.pkl} is produced by \code{\_build\_cache\_signature} in \code{run\_sweep.py}: CSV path, size, and nanosecond mtime; \code{n\_cols} and \code{n\_target}; SHA-256 hashes of the ordered column-name list, \code{target\_indices}, and \code{condition\_indices}.
-\code{\_load\_transformed\_cache} requires exact equality of all signature fields before reusing cached \code{.npy} arrays.
+The signature dict in \code{metadata.pkl} is produced by \code{build\_cache\_signature} in \code{src/lexisflow/sweep/cache.py}: CSV path, size, and nanosecond mtime; \code{n\_cols} and \code{n\_target}; SHA-256 hashes of the ordered column-name list, \code{target\_indices}, and \code{condition\_indices}.
+\code{load\_transformed\_cache} (same module) requires exact equality of all signature fields before reusing cached \code{.npy} arrays.
 
 A hit skips redundant \code{transform} work; a miss rebuilds matrices and overwrites the cache, preventing reuse after the input file, schema, or index split changes.
 
@@ -297,6 +314,35 @@ A run is flagged as degenerate when both patient-level synthetic-side thresholds
 \code{mortality\_synth\_roc\_auc <= 0.55} and \code{los\_synth\_macro\_f1 <= 0.15}, with finite-value checks before thresholding.
 Vasopressor metrics are no longer part of the degeneracy check following the TSTR framework revision described in the Evaluation chapter.
 Importantly, runs are \emph{not} dropped; metrics are preserved and annotated with \code{degenerate\_flag=1}.
+
+%==============================================================================
+\section{Cross-Dataset Reproducibility on a Public Benchmark}
+\label{sec:challenge2012-impl}
+%==============================================================================
+
+Access to MIMIC-III requires credentialed PhysioNet approval, which is a barrier to external reproduction of the main results. To make the pipeline reproducible for a reader without that credential, the implementation additionally targets the PhysioNet Challenge 2012 set-A cohort \cite{silva2012challenge}, an open-access ICU benchmark released under the Open Data Commons Attribution licence (ODC-BY) and available at \url{https://physionet.org/content/challenge-2012/1.0.0/}. The Challenge 2012 path runs on 4{,}000 ICU patients gridded to 48 hourly bins, yielding $189{,}120$ rows after the same static/dynamic separation used for MIMIC.
+
+\subsection{What Data These Cohorts Contain}
+
+Although both datasets are ICU-focused, they differ in source breadth. MIMIC-III is a full hospital critical-care EHR with broad modality coverage (demographics, charted vital signs, laboratory results, interventions, medications, procedures, and outcomes). In this project, the modelling interface uses the structured hourly tabular slice produced by a MIMIC-Extract style pipeline, so each synthetic trajectory is generated from static patient descriptors plus time-indexed physiological and intervention features.
+
+PhysioNet Challenge 2012 set-A is a narrower benchmark specifically packaged for mortality prediction from the first 48 ICU hours. In this pipeline it is prepared into the same autoregressive schema as MIMIC: static demographics, hourly aggregated clinical measurements, and the two downstream labels used throughout this report (\code{hospital\_expire\_flag} and \code{los\_icu}). This alignment is intentional, because it allows the exact same training and evaluation code paths to run on an open dataset.
+
+\subsection{Shared Pipeline, Dataset-Specific Preparation}
+
+Reproducibility here means the same pipeline binaries, not a parallel re-implementation. Challenge 2012 and MIMIC share every post-preparation stage: preprocessor fitting, backbone training, sampling, TSTR, quality, trajectory, and privacy metrics are identical. Only the dataset-specific preparation scripts in \code{scripts/challenge2012/} differ from those in \code{scripts/mimic/}; after preparation, the downstream artefacts follow the same schema consumed by the sweep driver.
+
+Dataset selection is a single CLI flag. The unified entry point
+\begin{quote}\small\code{uv run python scripts/run\_sweep.py --dataset challenge2012}\end{quote}
+dispatches through \code{src/lexisflow/config/datasets.py}, where \code{DatasetConfig} fixes dataset-specific paths and \code{SweepDefaults} / \code{SplitConfig} fix the sweep grid and patient-level split seed. The MIMIC invocation is identical except for \code{--dataset mimic}. A \code{--profile smoke} preset is exposed for low-cost validation, and \code{--reset} clears generated artefacts for a clean rerun; the full user-facing invocation reference lives in the top-level \code{README.md} and \code{scripts/challenge2012/README.md}.
+
+\subsection{Feature-Schema Alignment}
+
+Challenge 2012 is semantically aligned with the MIMIC autoregressive schema: static demographics, vital-sign medians per hour, and the same mortality / ICU length-of-stay labels (\code{hospital\_expire\_flag}, \code{los\_icu}). Two columns with below-10\,\% coverage (\code{TroponinI}, \code{Cholesterol}) are dropped during preparation, and the SAPS-I / SOFA severity scores are not used, so the downstream feature vector slots into the same preprocessor contract as the MIMIC cohort.
+
+\subsection{Status and Role in This Thesis}
+
+The Challenge 2012 sweep is in progress at the time of writing; its results are intentionally out of scope for the empirical chapter of this submission. The role of this benchmark in the thesis is methodological: it demonstrates that the pipeline is not wedded to a single credentialed dataset, and it gives a future reviewer an open-access route to re-execute the training and evaluation stack end-to-end. Numerical Challenge 2012 results will be reported as follow-on work once the ongoing sweep completes.
 
 %==============================================================================
 \section{Reproducibility and Reporting Conventions}
@@ -335,6 +381,9 @@ The implementation centres on a small set of modules, each tied to a reported ou
 \begin{itemize}\tightlist
     \item \code{src/lexisflow/data/transformers.py}: preprocessing/inverse decoding that governs whether generated rows can be evaluated in clinically meaningful units.
     \item \code{src/lexisflow/models/\{forest\_flow,hs3f\}.py}: backbone-specific training/sampling logic that drives fidelity and utility differences.
-    \item \code{src/lexisflow/evaluation/\{tstr\_framework,privacy\_metrics,trajectory\_metrics\}.py}: metric implementations that produce the evidence interpreted in Chapter~7.
-    \item \code{scripts/\{fit\_autoregressive\_preprocessor,train\_hour0,train\_autoregressive,run\_sweep\}.py}: orchestration layer that makes runs reproducible and sweep results comparable.
+    \item \code{src/lexisflow/models/iterator.py}: \code{FlowMatchingDataIterator}, a custom XGBoost \code{QuantileDMatrix}-compatible iterator that streams the $n_{\text{noise}}$-fold noise augmentation on the fly instead of materialising the full duplicated design matrix in memory. This directly enables the larger $n_{\text{noise}}$ values in the sweep on commodity hardware.
+    \item \code{src/lexisflow/models/sampling.py}: \code{sample\_trajectory} implements the autoregressive rollout loop, including static-feature conditioning, initial-state strategies, and early stopping on discharge/mortality indicators; it is the module that joins the hour-0 and autoregressive stages into a full synthetic trajectory.
+    \item \code{src/lexisflow/evaluation/\{tstr\_framework,privacy\_metrics,quality\_metrics,trajectory\_metrics\}.py}: metric implementations that produce the evidence interpreted in Chapter~7. \code{quality\_metrics.py} also contains the hard-coded \code{CLINICAL\_RANGES} dictionary used by the range-violation metric.
+    \item \code{src/lexisflow/sweep/\{cache,schema,config,data\_prep,training,generation,evaluation,cli\}.py}: the unified sweep package. \code{schema.py} exposes a declarative \code{SweepField} dataclass which replaces ad-hoc per-metric rounding boilerplate and defines the canonical \code{results/sweep\_results.csv} column order in one place; \code{cache.py} owns the transformed-array cache discussed in section~\ref{sec:unified-sweep}; \code{cli.py} is the entry point invoked by \code{scripts/run\_sweep.py}.
+    \item \code{scripts/\{mimic,challenge2012\}/\{prepare\_hour0,fit\_hour0\_preprocessor,prepare\_autoregressive,fit\_autoregressive\_preprocessor,run\_sweep\}.py}: dataset-specific orchestration layers that make runs reproducible across both MIMIC-III and the public Challenge 2012 benchmark.
 \end{itemize}

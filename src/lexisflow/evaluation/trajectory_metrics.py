@@ -15,22 +15,26 @@ import pandas as pd
 from scipy import stats
 
 
-# Core vital signs present in the autoregressive CSV (verified column names).
-TRAJECTORY_VITALS: list[str] = [
-    "Heart_Rate_mean",
-    "Systolic_blood_pressure_mean",
-    "Diastolic_blood_pressure_mean",
-    "Mean_blood_pressure_mean",
-    "Respiratory_rate_mean",
-    "Oxygen_saturation_mean",
-    "Temperature_mean",
-]
+# Semantic vital names with alias order. MIMIC flattened columns remain first so
+# existing runs are unaffected; Challenge 2012 aliases are fallback options.
+VITAL_ALIASES: dict[str, tuple[str, ...]] = {
+    "heart_rate": ("Heart_Rate_mean", "HR"),
+    "systolic_bp": ("Systolic_blood_pressure_mean", "SysABP", "NISysABP"),
+    "diastolic_bp": ("Diastolic_blood_pressure_mean", "DiasABP", "NIDiasABP"),
+    "mean_bp": ("Mean_blood_pressure_mean", "MAP", "NIMAP"),
+    "resp_rate": ("Respiratory_rate_mean", "RespRate"),
+    "oxygen_sat": ("Oxygen_saturation_mean", "SaO2"),
+    "temperature": ("Temperature_mean", "Temp"),
+}
+
+# Canonical list used when aggregating per-vital temporal metrics.
+TRAJECTORY_VITALS: list[str] = list(VITAL_ALIASES)
 
 # Clinically meaningful feature pairs for within-trajectory correlation.
 CLINICAL_PAIRS: list[tuple[str, str]] = [
-    ("Heart_Rate_mean", "Mean_blood_pressure_mean"),
-    ("Systolic_blood_pressure_mean", "Diastolic_blood_pressure_mean"),
-    ("Oxygen_saturation_mean", "Respiratory_rate_mean"),
+    ("heart_rate", "mean_bp"),
+    ("systolic_bp", "diastolic_bp"),
+    ("oxygen_sat", "resp_rate"),
 ]
 
 _MIN_TRAJECTORY_LEN = 4  # Minimum rows for meaningful temporal statistics.
@@ -61,10 +65,29 @@ def _valid_vitals(
     synth_df: pd.DataFrame,
     candidates: list[str] | None = None,
 ) -> list[str]:
-    """Return the subset of *candidates* present in both DataFrames."""
+    """Resolve candidate semantic vital names to concrete shared columns."""
+    resolved = _resolved_vital_columns(real_df, synth_df, candidates=candidates)
     if candidates is None:
         candidates = TRAJECTORY_VITALS
-    return [c for c in candidates if c in real_df.columns and c in synth_df.columns]
+    return [resolved[k] for k in candidates if k in resolved]
+
+
+def _resolved_vital_columns(
+    real_df: pd.DataFrame,
+    synth_df: pd.DataFrame,
+    candidates: list[str] | None = None,
+) -> dict[str, str]:
+    """Map semantic vital names to the first alias shared by both frames."""
+    if candidates is None:
+        candidates = TRAJECTORY_VITALS
+    resolved: dict[str, str] = {}
+    for key in candidates:
+        aliases = VITAL_ALIASES.get(key, (key,))
+        for col in aliases:
+            if col in real_df.columns and col in synth_df.columns:
+                resolved[key] = col
+                break
+    return resolved
 
 
 def _per_trajectory_lag1_autocorr(
@@ -245,14 +268,13 @@ def compute_temporal_corr_drift(
     Returns:
         Scalar distance in [0, 2], or ``NaN`` if no pairs qualify.
     """
-    valid_pairs = [
-        (a, b)
-        for a, b in CLINICAL_PAIRS
-        if a in real_df.columns
-        and b in real_df.columns
-        and a in synth_df.columns
-        and b in synth_df.columns
-    ]
+    resolved = _resolved_vital_columns(real_df, synth_df)
+    valid_pairs: list[tuple[str, str]] = []
+    for a_key, b_key in CLINICAL_PAIRS:
+        a_col = resolved.get(a_key)
+        b_col = resolved.get(b_key)
+        if a_col is not None and b_col is not None:
+            valid_pairs.append((a_col, b_col))
     if not valid_pairs:
         return np.nan
 

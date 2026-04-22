@@ -326,7 +326,7 @@ Figure~\ref{fig:hs3f-arch} shows the HS3F system design. Chapter~4 defines the f
 \end{scope}
 
 \end{tikzpicture}
-\caption{HS3F backbone. Features are generated sequentially in a fixed order. Continuous features are produced by a flow-matching regressor integrated with RK4; categorical features are produced by an XGBoost classifier with multinomial sampling. Each generated feature is appended to the conditioning prefix before the next feature is generated, capturing inter-feature dependencies.}
+\caption{HS3F backbone. Features are generated sequentially in a fixed order. Continuous features are produced by a flow-matching regressor integrated with RK4 by default (explicit Euler is also selectable at sampling time); categorical features are produced by an XGBoost classifier with multinomial sampling. Each generated feature is appended to the conditioning prefix before the next feature is generated, capturing inter-feature dependencies.}
 \label{fig:hs3f-arch}
 \end{figure}
 

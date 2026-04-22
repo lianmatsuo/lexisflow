@@ -45,6 +45,15 @@ def _build_argparser() -> argparse.ArgumentParser:
             "(for example: full, smoke)."
         ),
     )
+    parser.add_argument(
+        "--n-jobs",
+        type=int,
+        default=None,
+        help=(
+            "Override parallel worker count for the dataset sweep step. "
+            "If omitted, the dataset/profile default is used."
+        ),
+    )
     return parser
 
 
@@ -115,6 +124,8 @@ def main() -> None:
     print("=" * 72)
     print(f"Running full sweep pipeline (dataset={args.dataset})")
     print(f"Sweep profile: {args.profile}")
+    if args.n_jobs is not None:
+        print(f"Parallel workers override: n_jobs={args.n_jobs}")
     print("=" * 72)
     for idx, (label, script_path, expected_outputs) in enumerate(steps, start=1):
         print(f"\n[{idx}/{len(steps)}] {label}: {script_path}")
@@ -122,7 +133,10 @@ def main() -> None:
             print("  cache: outputs already exist, skipping step")
             continue
         if label == "run sweep":
-            _run_script(script_path, extra_args=["--profile", args.profile])
+            sweep_args = ["--profile", args.profile]
+            if args.n_jobs is not None:
+                sweep_args.extend(["--n-jobs", str(args.n_jobs)])
+            _run_script(script_path, extra_args=sweep_args)
         else:
             _run_script(script_path)
 
