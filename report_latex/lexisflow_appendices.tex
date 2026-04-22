@@ -1,0 +1,41 @@
+\documentclass[11pt]{informatics-report}
+\usepackage{color}
+\usepackage[square,comma,numbers]{natbib}
+\usepackage{enumitem}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{xr}
+\graphicspath{{figures/}{../results/sweep_plots/}}
+
+\lstdefinestyle{codeinline}{%
+  basicstyle=\ttfamily,
+  breaklines=true,
+  columns=fullflexible,
+}
+\newcommand{\code}[1]{\lstinline[style=codeinline]!#1!}
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\title{Synthetic ICU Trajectory Generation\\\vspace{0.2cm}Appendices}
+\author{Lian Matsuo\\Programme of Study: Artificial Intelligence}
+\studentID{K23060243}
+\supervisor{David Watson}
+\date{\today}
+
+\begin{document}
+\setlength{\emergencystretch}{3em}
+\externaldocument{lexisflow_report}
+\onehalfspacing
+\tableofcontents
+\doublespacing
+
+\appendix
+\include{Appendices/Appendix}
+\include{Appendices/UserGuide}
+\include{Appendices/SourceCode}
+
+\end{document}

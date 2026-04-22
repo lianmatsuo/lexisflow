@@ -5,8 +5,7 @@
 \section{Traceability of Objectives to Evidence}
 %==============================================================================
 
-Software and systems requirements practice treats bidirectional traceability, from stakeholder needs through design to verification evidence, as a core quality activity \cite{ieee29148Requirements2018}.
-Table~\ref{tab:obj-trace} summarises how the objectives of this thesis (hour-0 plus autoregressive ICU synthesis, mixed-type tabular handling, utility/distributional/privacy checks, reproducible logging) map to implementation anchors, evaluation quantities, and the sections below where those links are documented.
+Table~\ref{tab:obj-trace} maps thesis objectives to implementation anchors, metrics, and where each link is evidenced. Orchestration detail (commands, profiles, caches) is left to the User Guide appendix so this chapter stays on the logic needed to interpret Chapter~7.
 
 \begin{table}[htbp]
 \centering
@@ -20,9 +19,9 @@ Table~\ref{tab:obj-trace} summarises how the objectives of this thesis (hour-0 p
 \textbf{Where evidenced} \\
 \midrule
 Two-stage synthesis: IID hour~0 then autoregressive rows &
-Numbered scripts; \code{run\_sweep} trains both stages per config &
+\code{run\_sweep} trains both stages per config &
 Stage timings; end-to-end sweep rows &
-section \textbf{Operational Pipeline}; section \textbf{Unified Sweep Architecture} \\
+section~\ref{sec:unified-sweep}; companion User Guide \\
 \midrule
 Mixed quantitative / categorical ICU features &
 \code{feature\_types} metadata; Forest-Flow vs HS3F paths; label remap in \code{sample()} &
@@ -40,17 +39,17 @@ $\overline{\mathrm{KS}}$, $\|\Delta C\|_F$, range-violation \% &
 section \textbf{Distributional Quality Metrics}; section \textbf{Empirical Outcomes from the Hyperparameter Sweep} \\
 \midrule
 Privacy-preservation risk checks &
-\code{src/lexisflow/evaluation/privacy\_metrics.py} (DCR + membership attack) &
+\code{privacy\_metrics.py} (DCR + membership attack) &
 DCR median/match rate; baseline/overfit scores; MIA ROC-AUC &
-section \textbf{Privacy Risk Metrics}; section \textbf{Key Implementation File Map} \\
+section \textbf{Privacy Risk Metrics} \\
 \midrule
 Reproducibility and auditable experiment history &
-Seeds; artifact paths; canonical CSV schema; cache signatures; failure rows preserved &
+Seeds; artefact paths; canonical CSV schema; cache signatures; failure rows preserved &
 Logged metrics; \code{degenerate\_flag}; resumable \code{sweep\_results.csv} &
-section \textbf{Reproducibility and Reporting Conventions}; section \textbf{Unified Sweep Architecture} \\
+section~\ref{sec:unified-sweep}; companion User Guide \\
 \bottomrule
 \end{tabularx}
-\caption{Objective-to-evidence traceability for this implementation chapter (section titles refer to headings within this chapter).}
+\caption{Objective-to-evidence traceability (``companion User Guide'' refers to the submitted appendix).}
 \label{tab:obj-trace}
 \end{table}
 
@@ -58,20 +57,9 @@ section \textbf{Reproducibility and Reporting Conventions}; section \textbf{Unif
 \section{Operational Pipeline for Hyperparameter Sweep}
 %==============================================================================
 
-The current end-to-end workflow is implemented as numbered scripts with explicit artifacts:
-\begin{enumerate}\tightlist
-    \item \code{prepare\_hour0.py} and \code{fit\_hour0\_preprocessor.py}
-          prepare and encode hour-0 training data.
-    \item \code{train\_hour0.py} trains an IID generator.
-    \item \code{prepare\_autoregressive.py} creates autoregressive tabular rows and carves patient-disjoint train / test / holdout splits (\code{autoregressive\_data.csv}, \code{real\_test.csv}, \code{real\_holdout.csv}).
-    \item \code{fit\_autoregressive\_preprocessor.py} fits the full-data autoregressive preprocessor on the training cohort.
-    \item \code{train\_autoregressive.py} trains the autoregressive generator.
-    \item \code{generate.py} loads model artifacts and exports synthetic samples.
-    \item \code{run\_sweep.py} performs unified hour-0 + autoregressive hyperparameter search.
-\end{enumerate}
+The sweep workflow is organised into four stages: data preparation, two-stage model training (hour-0 IID plus autoregressive transition), synthetic generation, and integrated evaluation with schema-controlled logging. The architecture is backbone-selectable (\code{forest-flow} or \code{hs3f}), and each configuration is recorded as one auditable experiment row so utility, fidelity, privacy, and runtime remain directly comparable.
 
-The architecture is explicitly two-stage and backbone-selectable (\code{forest-flow} or \code{hs3f}, default \code{hs3f}). Quality and TSTR evaluation are integrated directly into \code{run\_sweep.py}; ad-hoc inspection of specific generated outputs is handled by the helpers in \code{lexisflow.evaluation}. A dedicated matched-cell driver (\code{run\_backbone\_comparison.py}) executes the same data and metric pipeline for HS3F, ForestFlow, and CTGAN at a fixed comparison cell; results are reported in the Evaluation chapter (section~\ref{sec:backbone-comparison}).
-This structure was chosen so each sweep row is an auditable end-to-end experiment unit, which is why Chapter~7 can compare utility, fidelity, privacy, and runtime from one consistent log schema.
+Script-level inventories and command recipes are intentionally maintained in repository documentation and appendix material rather than repeated in this chapter. This section therefore focuses on implementation structure and evidential traceability rather than operational command detail.
 
 \subsection{Feature Selection Policy}
 \label{sec:feature-selection-policy}
@@ -260,60 +248,22 @@ DCR-style proximity metrics are useful diagnostics but should not be treated as 
 
 \subsection{Empirical Outcomes from the Hyperparameter Sweep}
 
-The canonical log \code{results/sweep\_results.csv} stores one normalised row per completed sweep cell over the configured $(n_t, n_{\text{noise}})$ grid. The schema includes metric columns, stage timings, error fields, and optional uncertainty fields (\code{*\_std}, \code{*\_ci95}, \code{trajectory\_seed\_count}) for multi-seed runs.
+One normalised row per completed $(n_t, n_{\text{noise}})$ cell is written to the dataset-specific sweep CSV (MIMIC: \code{results/sweep\_results.csv}). Quantitative interpretation of those columns is in Chapter~7; column semantics and analysis scripts are covered in the User Guide and Source Code appendices.
 
-This chapter documents how those values are produced and persisted. The interpretation of utility, fidelity, privacy, and efficiency outcomes is intentionally centralised in Chapter~7.
-
-\paragraph{Trajectory-Level Coherence Metrics}
+\paragraph{Trajectory-level coherence}
 \label{sec:trajectory-coherence}
 
-The trajectory-level metrics defined in Chapter~7 (autocorrelation distance, stay-length KS, transition smoothness ratio, temporal cross-feature drift) are implemented in \code{src/lexisflow/evaluation/trajectory\_metrics.py} and integrated into \code{run\_sweep.py}, with dedicated unit coverage in \code{src/lexisflow/evaluation/tests/test\_trajectory\_metrics.py}. Implementation correctness is established by tests that verify:
-\begin{itemize}\tightlist
-    \item zero values when real and synthetic trajectories are identical (sanity bound);
-    \item monotonic degradation as synthetic trajectories are perturbed with progressively larger noise;
-    \item stable behaviour when trajectory lengths fall below the minimum window (short trajectories are excluded rather than causing NaNs).
-\end{itemize}
-Numerical results and interpretation are reported in Chapter~7.
+The trajectory metrics used in Chapter~7 (autocorrelation distance, stay-length KS, smoothness, temporal drift) are implemented in \code{evaluation/trajectory\_metrics.py} and called from the sweep driver. Numerical results and discussion are in Chapter~7; unit tests in the repository check identity, monotonicity under noise, and short-trajectory edge cases.
 
 %==============================================================================
-\section{Unified Sweep Architecture}
+\section{Sweep driver, cache, and logging}
 \label{sec:unified-sweep}
 %==============================================================================
 
-\subsection{Per-Configuration Lifecycle}
+For each $(n_t, n_{\text{noise}})$ cell, the driver trains hour-0 and autoregressive models, generates a synthetic cohort, and runs the evaluation stack, appending one normalised row to the sweep CSV. Headers are fixed so partial reruns cannot corrupt the log. Transformed autoregressive arrays may be cached when metadata matches, reducing repeated work across the grid. Completed keys are skipped on rerun; failed cells are still recorded (with error or NaN fields) so the grid has a full audit trail. CLI entrypoints, profile names, cache paths, and worker flags are not duplicated here: they are documented in the User Guide (companion appendix).
 
-For each $(n_t, n_{\text{noise}})$ pair, \code{run\_sweep.py} executes:
-\begin{enumerate}\tightlist
-    \item Train hour-0 IID model,
-    \item Train autoregressive model,
-    \item Generate synthetic samples,
-    \item Run multi-task TSTR + quality metrics,
-    \item Append one normalised CSV row.
-\end{enumerate}
-
-Each finished configuration is normalised to the canonical header list \code{SWEEP\_RESULT\_COLUMNS} before append, so partial reruns do not corrupt \code{results/sweep\_results.csv}.
-The row payload includes utility metrics, quality metrics, timing fields for both model stages, and \code{degenerate\_flag}.
-
-\subsection{Always-On Transformed Cache}
-
-Autoregressive transformed arrays are cached by default under \code{models/sweep\_cache/transformed\_autoregressive/} and reloaded when a signature check passes.
-
-The signature dict in \code{metadata.pkl} is produced by \code{build\_cache\_signature} in \code{src/lexisflow/sweep/cache.py}: CSV path, size, and nanosecond mtime; \code{n\_cols} and \code{n\_target}; SHA-256 hashes of the ordered column-name list, \code{target\_indices}, and \code{condition\_indices}.
-\code{load\_transformed\_cache} (same module) requires exact equality of all signature fields before reusing cached \code{.npy} arrays.
-
-A hit skips redundant \code{transform} work; a miss rebuilds matrices and overwrites the cache, preventing reuse after the input file, schema, or index split changes.
-
-\subsection{Resumability and Failure Logging}
-
-Runs are keyed by \code{(nt, n\_noise)} from \code{results/sweep\_results.csv}; any existing row for a key is skipped on rerun, including rows previously written after failures.
-Failures do not abort the full sweep; they are written as explicit NaN/error rows, preserving an audit trail.
-
-\subsection{Degeneracy Guardrail}
-
-A run is flagged as degenerate when both patient-level synthetic-side thresholds are simultaneously met:
-\code{mortality\_synth\_roc\_auc <= 0.55} and \code{los\_synth\_macro\_f1 <= 0.15}, with finite-value checks before thresholding.
-Vasopressor metrics are no longer part of the degeneracy check following the TSTR framework revision described in the Evaluation chapter.
-Importantly, runs are \emph{not} dropped; metrics are preserved and annotated with \code{degenerate\_flag=1}.
+\paragraph{Degeneracy flag.}
+A cell is marked \code{degenerate\_flag=1} when \emph{both} \code{mortality\_synth\_roc\_auc <= 0.55} and \code{los\_synth\_macro\_f1 <= 0.15} (with finite checks), reflecting catastrophically poor synthetic-side utility. Rows are not dropped, so Chapter~7 can report failed and healthy cells side by side.
 
 %==============================================================================
 \section{Cross-Dataset Reproducibility on a Public Benchmark}
@@ -324,66 +274,37 @@ Access to MIMIC-III requires credentialed PhysioNet approval, which is a barrier
 
 \subsection{What Data These Cohorts Contain}
 
-Although both datasets are ICU-focused, they differ in source breadth. MIMIC-III is a full hospital critical-care EHR with broad modality coverage (demographics, charted vital signs, laboratory results, interventions, medications, procedures, and outcomes). In this project, the modelling interface uses the structured hourly tabular slice produced by a MIMIC-Extract style pipeline, so each synthetic trajectory is generated from static patient descriptors plus time-indexed physiological and intervention features.
+Although both datasets are ICU-focused, they differ in source breadth. MIMIC-III is a full hospital critical-care EHR with broad modality coverage (demographics, charted vital signs, laboratory results, interventions, medications, procedures, and outcomes). In this project, the modelling interface uses the structured hourly tabular slice defined by the preprocessing contract in section~\ref{sec:mimic-preprocess-contract}, so each synthetic trajectory is generated from static patient descriptors plus time-indexed physiological and intervention features.
 
 PhysioNet Challenge 2012 set-A is a narrower benchmark specifically packaged for mortality prediction from the first 48 ICU hours. In this pipeline it is prepared into the same autoregressive schema as MIMIC: static demographics, hourly aggregated clinical measurements, and the two downstream labels used throughout this report (\code{hospital\_expire\_flag} and \code{los\_icu}). This alignment is intentional, because it allows the exact same training and evaluation code paths to run on an open dataset.
 
-\subsection{Shared Pipeline, Dataset-Specific Preparation}
+\subsection{Shared pipeline, dataset-specific preparation}
 
-Reproducibility here means the same pipeline binaries, not a parallel re-implementation. Challenge 2012 and MIMIC share every post-preparation stage: preprocessor fitting, backbone training, sampling, TSTR, quality, trajectory, and privacy metrics are identical. Only the dataset-specific preparation scripts in \code{scripts/challenge2012/} differ from those in \code{scripts/mimic/}; after preparation, the downstream artefacts follow the same schema consumed by the sweep driver.
-
-Dataset selection is a single CLI flag. The unified entry point
-\begin{quote}\small\code{uv run python scripts/run\_sweep.py --dataset challenge2012}\end{quote}
-dispatches through \code{src/lexisflow/config/datasets.py}, where \code{DatasetConfig} fixes dataset-specific paths and \code{SweepDefaults} / \code{SplitConfig} fix the sweep grid and patient-level split seed. The MIMIC invocation is identical except for \code{--dataset mimic}. A \code{--profile smoke} preset is exposed for low-cost validation, and \code{--reset} clears generated artefacts for a clean rerun; the full user-facing invocation reference lives in the top-level \code{README.md} and \code{scripts/challenge2012/README.md}.
+Reproducibility here means the same code paths, not a second implementation. After preparation, Challenge 2012 and MIMIC share preprocessor fitting, training, sampling, and the full metric stack; only \code{scripts/challenge2012/} versus \code{scripts/mimic/} preparation differs. How to invoke the driver for each dataset is in the User Guide (companion appendix).
 
 \subsection{Feature-Schema Alignment}
 
 Challenge 2012 is semantically aligned with the MIMIC autoregressive schema: static demographics, vital-sign medians per hour, and the same mortality / ICU length-of-stay labels (\code{hospital\_expire\_flag}, \code{los\_icu}). Two columns with below-10\,\% coverage (\code{TroponinI}, \code{Cholesterol}) are dropped during preparation, and the SAPS-I / SOFA severity scores are not used, so the downstream feature vector slots into the same preprocessor contract as the MIMIC cohort.
 
+\paragraph{Challenge-specific utility-oriented denoising.}
+During Challenge 2012 debugging, near-random TSTR utility was traced to a mismatch between ``distributional realism'' and ``predictive transfer'': some variables showed weak outcome signal in the real cohort while also exhibiting large real--synthetic drift, which increased model noise without improving downstream discrimination. To address this at the \emph{pipeline} level (rather than by post-hoc evaluator filtering), the Challenge preparation and preprocessor scripts now remove an additional fixed set of columns:
+\begin{itemize}\tightlist
+    \item \code{Temp}, \code{PaO2}, \code{PaCO2}, \code{ALP},
+    \item \code{SaO2}, \code{Glucose}, \code{Platelets}, \code{Height}.
+\end{itemize}
+This policy is deterministic and encoded directly in \code{scripts/challenge2012/prepare\_hour0.py}, \code{prepare\_autoregressive.py}, \code{fit\_hour0\_preprocessor.py}, and \code{fit\_autoregressive\_preprocessor.py}. Consequently, generation, sampling, and evaluation all use the same reduced feature schema, avoiding the methodological inconsistency of training on one schema and evaluating on another.
+
+\paragraph{Interpretation and risk.}
+This is a conservative denoising step, not a claim that the removed variables are universally non-clinical. The practical thesis objective is to improve utility under a fixed model family and finite compute budget; therefore columns are removed only when evidence suggests they contribute more noise/drift than transferable signal in this specific pipeline. Residual risk remains that some dropped variables could become useful under different backbones or richer temporal models, so this policy should be revisited if the modelling architecture changes.
+
+
 \subsection{Status and Role in This Thesis}
 
-The Challenge 2012 sweep is in progress at the time of writing; its results are intentionally out of scope for the empirical chapter of this submission. The role of this benchmark in the thesis is methodological: it demonstrates that the pipeline is not wedded to a single credentialed dataset, and it gives a future reviewer an open-access route to re-execute the training and evaluation stack end-to-end. Numerical Challenge 2012 results will be reported as follow-on work once the ongoing sweep completes.
+The Challenge 2012 sweep is in progress at the time of writing; its results are intentionally out of scope for the empirical claims of this dissertation. In this thesis, Challenge 2012 is used strictly as a reproducibility supplement: it demonstrates that the same pipeline can be re-executed on an open dataset by readers without MIMIC credentialing. The evidential core of the dissertation remains the MIMIC-III analysis reported in Chapter~7. Numerical Challenge 2012 outcomes are deferred to follow-on work after sweep completion.
 
 %==============================================================================
-\section{Reproducibility and Reporting Conventions}
+\section{Positioning relative to prior implementations}
+\label{sec:external-methods}
 %==============================================================================
 
-The current report and code follow reproducibility-oriented implementation practices:
-\begin{itemize}\tightlist
-    \item deterministic seeds for NumPy/model constructors,
-    \item explicit artifact paths and metadata-rich pickles,
-    \item canonical CSV schema enforcement before append,
-    \item transparent warnings instead of silent failures,
-    \item progress instrumentation for long-running stages.
-\end{itemize}
-
-These choices are consistent with reproducible computational research practice and are intended to support debugging and thesis traceability.
-
-%==============================================================================
-\section{Relationship to External Methods and Projects}
-%==============================================================================
-
-Our implementation is grounded in:
-\begin{itemize}\tightlist
-    \item flow matching for CNF-style training \cite{lipman2023flow},
-    \item tree-based flow matching for tabular generation \cite{jolicoeur2023forest},
-    \item heterogeneous sequential mixed-type generation \cite{akazan2024hs3f},
-    \item XGBoost as the core function approximator \cite{chen2016xgboost}.
-\end{itemize}
-
-Common synthetic tabular/time-series baselines include CTGAN \cite{xu2019ctgan}, TimeGAN \cite{yoon2019timegan}, TabDDPM \cite{kotelnikov2023tabddpm}, TabSyn \cite{zhang2024tabsyn}, and SDV ecosystem tooling \cite{sdvproject}. In this project, CTGAN is integrated through \code{src/lexisflow/models/ctgan\_adapter.py} as a pragmatic lower-bound/reference baseline inside the same data and metric pipeline. Transformer-based generators such as GReaT \cite{borisov2023great} and REaLTabFormer \cite{solatorio2023realtabformer} remain future comparison points.
-
-%==============================================================================
-\section{Key Implementation Modules}
-%==============================================================================
-
-The implementation centres on a small set of modules, each tied to a reported outcome:
-\begin{itemize}\tightlist
-    \item \code{src/lexisflow/data/transformers.py}: preprocessing/inverse decoding that governs whether generated rows can be evaluated in clinically meaningful units.
-    \item \code{src/lexisflow/models/\{forest\_flow,hs3f\}.py}: backbone-specific training/sampling logic that drives fidelity and utility differences.
-    \item \code{src/lexisflow/models/iterator.py}: \code{FlowMatchingDataIterator}, a custom XGBoost \code{QuantileDMatrix}-compatible iterator that streams the $n_{\text{noise}}$-fold noise augmentation on the fly instead of materialising the full duplicated design matrix in memory. This directly enables the larger $n_{\text{noise}}$ values in the sweep on commodity hardware.
-    \item \code{src/lexisflow/models/sampling.py}: \code{sample\_trajectory} implements the autoregressive rollout loop, including static-feature conditioning, initial-state strategies, and early stopping on discharge/mortality indicators; it is the module that joins the hour-0 and autoregressive stages into a full synthetic trajectory.
-    \item \code{src/lexisflow/evaluation/\{tstr\_framework,privacy\_metrics,quality\_metrics,trajectory\_metrics\}.py}: metric implementations that produce the evidence interpreted in Chapter~7. \code{quality\_metrics.py} also contains the hard-coded \code{CLINICAL\_RANGES} dictionary used by the range-violation metric.
-    \item \code{src/lexisflow/sweep/\{cache,schema,config,data\_prep,training,generation,evaluation,cli\}.py}: the unified sweep package. \code{schema.py} exposes a declarative \code{SweepField} dataclass which replaces ad-hoc per-metric rounding boilerplate and defines the canonical \code{results/sweep\_results.csv} column order in one place; \code{cache.py} owns the transformed-array cache discussed in section~\ref{sec:unified-sweep}; \code{cli.py} is the entry point invoked by \code{scripts/run\_sweep.py}.
-    \item \code{scripts/\{mimic,challenge2012\}/\{prepare\_hour0,fit\_hour0\_preprocessor,prepare\_autoregressive,fit\_autoregressive\_preprocessor,run\_sweep\}.py}: dataset-specific orchestration layers that make runs reproducible across both MIMIC-III and the public Challenge 2012 benchmark.
-\end{itemize}
+Training follows flow matching \cite{lipman2023flow} with tree-based vector fields \cite{jolicoeur2023forest,akazan2024hs3f} and XGBoost as the function approximator \cite{chen2016xgboost}. CTGAN \cite{xu2019ctgan} is included as a shared-pipeline baseline via \code{ctgan\_adapter.py}. Other generators discussed in Chapter~2 are cited for context; they are not re-implemented in this project. A task-oriented file map (data, models, evaluation, sweep) is in the Source Code appendix rather than here, to avoid repeating the same navigation material twice.

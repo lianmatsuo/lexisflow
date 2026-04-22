@@ -9,7 +9,7 @@ pairs suitable for the Forest-Flow autoregressive model.
 
 Output:
     data/challenge2012/processed/autoregressive_data.csv
-        Columns: subject_id, hours_in, static (Age/Gender/Height/Weight/ICUType),
+        Columns: subject_id, hours_in, static (Age/Gender/Weight/ICUType),
         dynamic features at current step, lag-1 conditions, plus
         hospital_expire_flag and los_icu labels (duplicated across rows).
 """
@@ -29,8 +29,19 @@ from lexisflow.config import get_dataset_config
 from lexisflow.data import prepare_autoregressive_data
 
 
-STATIC_PARAMS = ["Age", "Gender", "Height", "Weight", "ICUType"]
+STATIC_PARAMS = ["Age", "Gender", "Weight", "ICUType"]
 DROP_PARAMS = {"TroponinI", "Cholesterol"}
+# Utility-focused denoising: weak outcome signal + high synthetic drift.
+DROP_PARAMS |= {
+    "Temp",
+    "PaO2",
+    "PaCO2",
+    "ALP",
+    "SaO2",
+    "Glucose",
+    "Platelets",
+    "Height",
+}
 MISSING_SENTINEL = -1
 N_HOURS = 48
 CFG = get_dataset_config("challenge2012")

@@ -21,6 +21,8 @@ whole-system structure vs. sweep execution details.
   - End-to-end architecture and module ownership.
 - `docs/SWEEP_ARCHITECTURE.md`
   - Sweep pipeline behavior (`scripts/run_sweep.py` and dataset drivers).
+- `docs/challenge2012.md`
+  - Public Challenge 2012 reproducibility and usage guide.
 - `docs/data/processing.md`
   - Dataset preparation and preprocessing outputs for MIMIC and Challenge 2012.
 - `docs/data/features.md`

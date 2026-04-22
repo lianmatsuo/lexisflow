@@ -295,7 +295,7 @@ def main() -> None:
         if not p.exists():
             raise SystemExit(
                 f"ERROR: missing {p}. Run scripts/challenge2012/prepare_* and "
-                "fit_* scripts first (see scripts/challenge2012/README.md)."
+                "fit_* scripts first (see docs/challenge2012.md)."
             )
 
     print("=" * 70)

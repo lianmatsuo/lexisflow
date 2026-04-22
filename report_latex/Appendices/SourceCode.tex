@@ -9,80 +9,82 @@ I verify that I am the sole author of the programs contained in this appendix, e
 
 \vspace{1em}
 
-The complete source code is submitted alongside this report. The table below provides an overview of the key files and their roles in the system architecture.
+The complete source code is submitted alongside this report. The main volume's Implementation chapter (Chapter~6) documents modelling and evaluation logic; this appendix is the canonical place for repository navigation, run paths, and artefact locations. The task-oriented map below highlights where to start for running sweeps, understanding model behaviour, and validating outputs.
 
 %==============================================================================
-\section{Source File Overview}
+\section{How to Navigate the Repository}
 %==============================================================================
 
-\begin{table}[htbp]
-\centering
+\textbf{Recommended reading path.}
+\begin{enumerate}\tightlist
+    \item Start with the top-level orchestration command in \code{scripts/run\_sweep.py}.
+    \item Follow dataset defaults and sweep budgets in \code{src/lexisflow/config/datasets.py}.
+    \item Read model backbones in \code{src/lexisflow/models/}.
+    \item Inspect metrics in \code{src/lexisflow/evaluation/}.
+    \item Validate assumptions with tests under \code{src/lexisflow/*/tests/}.
+\end{enumerate}
+
+\textbf{Core run path (end-to-end).}
+
+\begin{center}
 \small
-\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.20\textwidth}>{\raggedright\arraybackslash}p{0.35\textwidth}X@{}}
 \toprule
-\textbf{File} & \textbf{Description} \\
+\textbf{Stage} & \textbf{Primary file(s)} & \textbf{Purpose} \\
 \midrule
-\multicolumn{2}{l}{\textbf{Data Processing (\code{src/lexisflow/data/})}} \\
-\midrule
-\code{transformers.py} & Tabular preprocessor: label encoding for categoricals, binary rounding, streaming \code{partial\_fit()}, and inverse transform for human-readable export. \\
-\code{autoregressive.py} & Autoregressive data preparation: lag-1 feature creation, static/dynamic column separation, biophysical aggregation. \\
-\code{feature\_utils.py} & Centralised feature-type detection: identifies numeric, binary, and categorical columns using clinical domain knowledge. \\
-\code{loaders.py} & Data loading utilities for MIMIC-III derived CSV files. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Generative Models (\code{src/lexisflow/models/})}} \\
-\midrule
-\code{forest\_flow.py} & ForestFlow backbone: conditional flow matching with XGBoost regressors at discrete time levels, Euler sampling, clean-condition principle. \\
-\code{hs3f.py} & HS3F backbone: heterogeneous sequential feature generation with flow-matching regressors for continuous and XGBoost classifiers for categorical targets. \\
-\code{iterator.py} & Memory-efficient \code{FlowMatchingDataIterator}: generates noise on-the-fly to avoid $n_{\text{noise}}\times$ data duplication. \\
-\code{sampling.py} & Autoregressive trajectory sampling: generates multi-hour patient trajectories by iteratively conditioning on previously generated states. \\
-\code{utils.py} & Shared model helper functions. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Evaluation (\code{src/lexisflow/evaluation/})}} \\
-\midrule
-\code{quality\_metrics.py} & Distributional quality: KS statistics, correlation Frobenius norm, clinical range violation rates. \\
-\code{privacy\_metrics.py} & Privacy diagnostics: DCR summaries, baseline/overfitting protection scores, DOMIAS-style membership inference attack. \\
-\code{tstr\_framework.py} & Unified multi-task patient-level TSTR: mortality and ICU LOS classification using padded-sequence logistic-regression classifiers. \\
-\code{tstr.py} & Single-task TSTR evaluation (mortality prediction). \\
-\code{visualizations.py} & Metric visualisation utilities. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Clinical Prediction (\code{src/lexisflow/mortality/})}} \\
-\midrule
-\code{model.py} & Mortality classifier: logistic regression baseline for TSTR evaluation. \\
-\code{preprocessor.py} & TSTR preprocessor: variable-length sequence padding for patient-level classification. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Pipeline Scripts (\code{scripts/})}} \\
-\midrule
-\code{prepare\_hour0.py} & Extract hour-0 patient states from MIMIC-III tables. \\
-\code{fit\_hour0\_preprocessor.py} & Fit IID preprocessor on hour-0 data. \\
-\code{train\_hour0.py} & Train IID hour-0 generative model. \\
-\code{prepare\_autoregressive.py} & Create autoregressive training table with lag features. \\
-\code{fit\_autoregressive\_preprocessor.py} & Fit preprocessor on full autoregressive dataset (streaming). \\
-\code{train\_autoregressive.py} & Train autoregressive model (ForestFlow or HS3F). \\
-\code{generate.py} & Generate synthetic patient trajectories. \\
-\code{run\_sweep.py} & Unified hyperparameter sweep with caching, resumability, and integrated TSTR/quality/privacy evaluation. \\
-\code{run\_backbone\_comparison.py} & Three-seed matched-cell HS3F vs.\ ForestFlow vs.\ CTGAN comparison. \\
-\code{analyze\_sweep.py} & Visualise sweep results (heatmaps, line charts, extrapolation). \\
-\code{analyze\_column\_coverage.py} & Report per-column missingness / coverage on the MIMIC-III training table. \\
-\code{analyze\_column\_removal.py} & Build column-removal recommendations for the preprocessor. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Unit Tests (\code{src/lexisflow/*/tests/})}} \\
-\midrule
-\code{test\_autoregressive.py} & Tests for autoregressive transformation and lag feature creation. \\
-\code{test\_feature\_utils.py} & Tests for feature-type detection utilities. \\
-\code{test\_forest\_flow.py} & Tests for ForestFlow model training and sampling. \\
-\code{test\_hs3f.py} & Tests for HS3F model training and sampling. \\
-\code{test\_sampling.py} & Tests for autoregressive trajectory sampling. \\
-\code{test\_privacy\_metrics.py} & Tests for privacy metric correctness and edge cases. \\
-\code{test\_tstr\_framework.py} & Tests for multi-task TSTR evaluation framework. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Configuration}} \\
-\midrule
-\code{configs/forest\_flow\_config.yaml} & Model hyperparameters, data paths, and generation settings. \\
-\code{configs/mortality\_classifier\_config.yaml} & TSTR classifier configuration. \\
-\code{pyproject.toml} & Project metadata, Python version, and dependency specifications. \\
+Sweep entrypoint & \code{scripts/run\_sweep.py} & Single command that orchestrates data prep, preprocessing, training, generation, and evaluation. \\
+Dataset-specific drivers & \code{scripts/mimic/run\_sweep.py}, \code{scripts/challenge2012/run\_sweep.py} & Apply dataset profile defaults and execute the full $(n_t, n_{\text{noise}})$ grid. \\
+Model training & \code{scripts/train\_hour0.py}, \code{scripts/train\_autoregressive.py} & Train IID hour-0 model and autoregressive transition model. \\
+Evaluation and plots & \code{src/lexisflow/evaluation/*.py}, \code{scripts/common/analyze\_sweep.py} & Compute quality/privacy/TSTR metrics and generate sweep visualisations. \\
 \bottomrule
 \end{tabularx}
-\caption{Source file inventory with one-line descriptions.}
-\end{table}
+\normalsize
+\end{center}
 
-\textbf{Note:} Complete source code listings are submitted electronically as a companion archive. The program files used in the project examination are identical to the files uploaded to KEATS.
+%==============================================================================
+\section{High-Value Modules by Question}
+%==============================================================================
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.33\textwidth}>{\raggedright\arraybackslash}p{0.27\textwidth}X@{}}
+\toprule
+\textbf{If you need to understand...} & \textbf{Go to...} & \textbf{What to look for} \\
+\midrule
+How feature types are inferred & \code{src/lexisflow/data/feature\_utils.py} & Rules that classify columns as continuous, binary, or categorical before model fitting. \\
+How autoregressive rows are built & \code{src/lexisflow/data/autoregressive.py} & Lag construction and static/dynamic feature separation for trajectory modelling. \\
+How ForestFlow is implemented & \code{src/lexisflow/models/forest\_flow.py} & Conditional flow matching over discrete time levels with XGBoost regressors. \\
+How HS3F differs from ForestFlow & \code{src/lexisflow/models/hs3f.py} & Heterogeneous sequential generation with separate handling of continuous and categorical targets. \\
+How trajectory sampling works & \code{src/lexisflow/models/sampling.py} & Iterative autoregressive rollout of synthetic patient timelines. \\
+How quality metrics are computed & \code{src/lexisflow/evaluation/quality\_metrics.py} & KS statistics, correlation preservation, and clinical range-violation calculations. \\
+How privacy risk is measured & \code{src/lexisflow/evaluation/privacy\_metrics.py} & DCR-based summaries and DOMIAS-style membership inference implementation. \\
+How downstream utility is measured & \code{src/lexisflow/evaluation/tstr\_framework.py} & Multi-task patient-level TSTR protocol for mortality and LOS prediction. \\
+\bottomrule
+\end{tabularx}
+\normalsize
+\end{center}
+
+%==============================================================================
+\section{Reproducibility Anchors}
+%==============================================================================
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.28\textwidth}>{\raggedright\arraybackslash}p{0.30\textwidth}X@{}}
+\toprule
+\textbf{Artifact type} & \textbf{Location} & \textbf{Why it matters} \\
+\midrule
+\textbf{Sweep defaults} & \code{src/lexisflow/config/datasets.py} & Canonical grid values, training-row budgets, and profile definitions used by both datasets. \\
+\textbf{Primary results CSVs} & \code{results/sweep\_results.csv}, \code{results/challenge2012\_sweep\_results.csv} & Per-cell metrics and error fields used to generate plots and report tables. \\
+\textbf{Preprocessor artifacts} & \code{artifacts/*preprocessor*.pkl} & Capture fitted transforms required for reproducible inverse-transform and generation. \\
+\textbf{Model artifacts} & \code{artifacts/*/sweep/} & Persist trained models per grid cell for traceability and reruns. \\
+\textbf{Unit tests} & \code{src/lexisflow/*/tests/} & Regression checks for data transforms, models, and evaluation metrics. \\
+\textbf{Dependency lock/config} & \code{pyproject.toml}, \code{uv.lock} & Pin package versions and Python constraints for environment reproducibility. \\
+\bottomrule
+\end{tabularx}
+\normalsize
+\end{center}
+
+\textbf{Note:} Complete source code listings are submitted electronically as a
+companion archive. The program files used in the project examination are
+identical to the files uploaded to KEATS.

@@ -18,13 +18,22 @@ from lexisflow.data import TabularPreprocessor, identify_feature_types, is_lagge
 
 
 EXCLUDE_COLS = {"subject_id", "hours_in"}
+EXCLUDE_NOISY_COLS = {
+    "Temp",
+    "PaO2",
+    "PaCO2",
+    "ALP",
+    "SaO2",
+    "Glucose",
+    "Platelets",
+    "Height",
+}
 # Labels are included as static-like condition columns so they propagate into
 # the inverse-transformed synthetic DataFrame (mirrors MIMIC behaviour — see
 # MortalityTask / LOSTask which read these columns).
 STATIC_COLS = [
     "Age",
     "Gender",
-    "Height",
     "Weight",
     "ICUType",
     "hospital_expire_flag",
@@ -58,7 +67,9 @@ def main() -> None:
     df = pd.read_csv(args.input_path, low_memory=False)
     print(f"\nLoaded: {df.shape[0]:,} rows × {df.shape[1]} columns")
 
-    feature_cols = [c for c in df.columns if c not in EXCLUDE_COLS]
+    feature_cols = [
+        c for c in df.columns if c not in EXCLUDE_COLS and c not in EXCLUDE_NOISY_COLS
+    ]
     static_cols = [c for c in STATIC_COLS if c in feature_cols]
     lagged_cols = [c for c in feature_cols if is_lagged(c)]
     target_cols = [c for c in feature_cols if c not in static_cols and not is_lagged(c)]

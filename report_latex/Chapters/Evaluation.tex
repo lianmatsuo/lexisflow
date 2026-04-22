@@ -1,44 +1,14 @@
 \chapter{Results/Evaluation}
 
+This chapter is organised as follows. First, it defines the evaluation protocol and metric rationale, including software-test coverage for metric implementations. Second, it reports and interprets the hyperparameter sweep outcomes. Third, it presents the matched-cell backbone comparison. Fourth, it states threats to validity that bound interpretation. Fifth, it closes with explicit requirements verification linked to the specification chapter.
+
 %==============================================================================
 \section{Software Testing}
 %==============================================================================
 
-The evaluation subsystem is verified with deterministic unit tests before computationally expensive sweeps are executed. The tests, implemented with \code{pytest} in \code{src/lexisflow/evaluation/tests/}, target metric correctness, edge-case handling, and report-schema stability \cite{pytestProject}.
+The evaluation stack is validated with deterministic \code{pytest} unit tests before computationally expensive sweeps are executed \cite{pytestProject}. Coverage focuses on directional correctness for quality and privacy metrics, defensive handling of edge cases (\code{NaN}s, low-sample columns, schema consistency), and report-shape stability. In particular, the tests verify expected behaviour under identity, shift, and memorisation-stress fixtures.
 
-\subsection{Quality-Metric Tests}
-
-The following functions are covered:
-\begin{itemize}\tightlist
-    \item \code{compute\_ks\_statistics},
-    \item \code{compute\_correlation\_frobenius},
-    \item \code{compute\_clinical\_range\_violations}.
-\end{itemize}
-These tests check expected behaviour under controlled fixtures:
-\begin{itemize}\tightlist
-    \item identical real/synthetic distributions produce near-zero KS and near-zero correlation-matrix difference;
-    \item shifted distributions produce larger KS values;
-    \item non-overlapping or insufficient numeric columns return \code{NaN} for correlation metrics rather than failing;
-    \item clinical-range checks return exact violation percentages for synthetic fixtures with known out-of-range values.
-\end{itemize}
-
-This structure provides an implementation-level regression guard: if code changes alter known outcomes on fixed fixtures, failures are surfaced immediately.
-
-\subsection{Privacy-Metric Tests}
-
-Privacy tests target the principal leakage scenarios represented in \code{privacy\_metrics.py}:
-\begin{itemize}\tightlist
-    \item duplicate synthetic rows sampled from training data should yield near-zero DCR median and high exact-match rate;
-    \item overfitting protection should decrease when synthetic rows are closer to training than holdout data;
-    \item DOMIAS-like membership attack scores are expected to exceed chance-level behaviour in memorisation-heavy fixtures;
-    \item integrated reports must always expose all expected sections (\code{dcr\_stats}, baseline/overfitting protection, membership inference).
-\end{itemize}
-
-These tests do not constitute a formal privacy proof; they verify that implemented diagnostics react directionally as expected under stress conditions.
-
-\subsection{What Is and Is Not Covered}
-
-The current suite focuses on unit-level correctness and defensive behaviour (missing columns, \code{NaN}s, low-sample regimes). End-to-end statistical validity at MIMIC scale is assessed through the sweep protocol and subsequent analysis, rather than per-commit integration tests. This separation is intentional because full-grid experiments are computationally costly.
+These checks are implementation-level guards rather than inferential evidence. Full numerical interpretation and validity claims are based on the sweep analysis reported in this chapter. Detailed test inventories and fixture-level assertions are provided in the appendix and repository test suite, so the chapter remains focused on empirical interpretation.
 
 %==============================================================================
 \section{Evaluation Methodology and Metric Rationale}
@@ -72,41 +42,27 @@ Accordingly, CTGAN results are interpreted conservatively: they provide a practi
 
 Primary utility assessment follows the Train-on-Synthetic, Test-on-Real (TSTR) paradigm, a widely used protocol in synthetic healthcare-data evaluation \cite{esteban2018rcgan,yan2022benchmarking}. The core idea is to train a downstream clinical predictor on synthetic data only and evaluate it on real held-out patients; the resulting performance gap relative to a real-trained baseline quantifies how much predictive signal the synthetic generator preserves.
 
-\paragraph{Initial design: row-level TSTR.}
+\paragraph{Protocol decision and rationale.}
 
-The evaluation framework was initially implemented as a row-level TSTR protocol. Each synthetic row (one patient-hour) was treated as an independent training sample; the downstream classifier was a logistic-regression model fitted on individual rows; and the test set was a held-out split of real rows. Three clinical tasks were targeted: mortality prediction, vasopressor-use prediction, and ICU length-of-stay (LOS) category prediction.
+The initial row-level TSTR setup was replaced by a patient-level sequence protocol because row-level evaluation introduced structural bias: potential within-patient leakage, weak sensitivity to temporal coherence, and instability under sparse-event class imbalance. The revised protocol aligns the utility test with the intended use case of patient-level trajectory modelling.
 
-While straightforward to implement, this design was found to suffer from four structural pitfalls:
-
-\begin{enumerate}
-    \item \textbf{Patient-level data leakage.} Row-level train/test splitting does not respect patient boundaries. Multiple hourly observations from the same patient can appear in both training and evaluation sets. The downstream classifier can then exploit within-patient autocorrelations rather than the quality of the synthetic distribution, inflating TSTR scores independently of generator performance.
-
-    \item \textbf{Temporal structure blindness.} The autoregressive generator is explicitly designed to capture hour-to-hour dynamics within a patient trajectory. Row-level evaluation treats each hourly observation as independent and identically distributed, making it structurally blind to the temporal coherence properties that the generator is meant to preserve. A generator that reproduces correct marginals but entirely wrong temporal dynamics scores the same as a well-calibrated one under this protocol.
-
-    \item \textbf{Vasopressor task degeneration under row-level imbalance.} Vasopressor use is a sparse event: in the MIMIC-III ICU cohort, vasopressors are administered in a minority of patient-hours. At row level, a classifier can achieve high accuracy by predicting the negative class on nearly every row. This pathological majority-class collapse renders the vasopressor task uninformative as a utility signal, and is consistent with the F1 collapse behaviour observed in the sweep results (see Implementation chapter, section \textbf{Empirical Outcomes}).
-
-    \item \textbf{Granularity mismatch with clinical deployment.} Synthetic EHR data is generated for patient-level clinical use, mortality forecasting, LOS prediction, discharge planning. Evaluating at row granularity measures a proxy for this that is misaligned with the actual downstream application context.
-\end{enumerate}
-
-\paragraph{Revised design: patient-level sequence TSTR.}
-
-In response to these pitfalls, the TSTR framework was revised to operate at \emph{patient trajectory} level. Let $\mathcal{S}_i = \{\mathbf{x}_{i,0}, \ldots, \mathbf{x}_{i,T_i}\}$ denote the ordered sequence of hourly feature vectors for patient $i$, and let $y_i$ denote the patient-level label. The synthetic-trained sequence classifier $g_{\phi}$ is evaluated as:
+Let $\mathcal{S}_i = \{\mathbf{x}_{i,0}, \ldots, \mathbf{x}_{i,T_i}\}$ denote the ordered hourly sequence for patient $i$, with patient-level label $y_i$. The synthetic-trained sequence classifier $g_{\phi}$ is evaluated as:
 
 \begin{equation}
 \phi_{\text{synth}} = \arg\min_{\phi}\mathcal{L}(g_{\phi}(\mathcal{S}_{\text{synth}}), y_{\text{synth}}), \quad
 \text{evaluate } g_{\phi_{\text{synth}}} \text{ on } (\mathcal{S}_{\text{real,test}}, y_{\text{real,test}}).
 \end{equation}
 
-Patient-level splitting is performed by \code{subject\_id} at two levels. First, the raw MIMIC-III cohort is partitioned once at preprocessing time (\code{scripts/prepare\_autoregressive.py}) into a training cohort (\code{autoregressive\_data.csv}, 80\,\% of patients), a TSTR / fidelity reference cohort (\code{real\_test.csv}, 10\,\% of patients), and a privacy-evaluation holdout cohort (\code{real\_holdout.csv}, 10\,\% of patients); the generator is only ever exposed to the first file, so the real cohorts used for evaluation share no patients with the cohort the generator learned from. Second, within \code{real\_test.csv}, the real patient cohort is split 70\,\% / 30\,\% for the real-trained baseline classifier (implemented as \code{test\_size=0.3} in \code{tstr\_framework.py}), with stratification on the task label where class support permits. All timesteps from one patient remain in the same split at both levels, eliminating within-patient leakage. Sequences are sorted by \code{hours\_in}, padded to a common length with a binary mask, flattened, and fed to a logistic-regression model (implemented as \code{\_PaddedSequenceClassifier} in \code{tstr\_framework.py}). This preserves temporal order and full-stay context per patient without requiring a recurrent or attention-based architecture; the mask encodes which timesteps are genuine observations versus padding.
+Patient-level splitting is enforced by \code{subject\_id}: the generator trains on one patient cohort, and utility/fidelity/privacy evaluation uses disjoint real cohorts. Within the utility cohort, the real-trained baseline uses an internal stratified patient split. Sequences are sorted, padded with masks, flattened, and evaluated with a class-balanced logistic baseline. This yields a leakage-resistant, temporally aware utility measure without introducing a new sequence-model confound.
 
-The vasopressor-use task was removed from the revised framework. At patient level, a binary ``ever received vasopressors'' label is more naturally defined, but vasopressor administration is a well-established marker of haemodynamic instability and septic shock severity that correlates strongly with both in-hospital mortality and prolonged ICU stay \cite{yan2022benchmarking}. As a consequence, a classifier trained to predict vasopressor use tends to recapitulate the same predictive signal as mortality and LOS classifiers, reducing its value as an independent utility dimension. The final framework evaluates two tasks implemented in \code{tstr\_framework.py}:
+The vasopressor task was removed from the final utility set because, in this cohort, it provided limited additional discrimination beyond mortality and LOS signals \cite{yan2022benchmarking}. The final framework therefore evaluates:
 
 \begin{itemize}\tightlist
     \item mortality prediction (binary, patient-level),
     \item ICU length-of-stay category prediction (multi-class, patient-level).
 \end{itemize}
 
-Task models use class-balanced logistic-regression baselines from scikit-learn \cite{pedregosa2011scikit} with \code{class\_weight="balanced"} to partially compensate for residual class imbalance. Reported metrics include accuracy, F1 (and macro F1 for multi-class), and ROC-AUC (binary or one-vs-rest macro) \cite{fawcett2006roc}. A real-trained baseline (train-real/test-real) is computed in parallel for comparison.
+Task models use class-balanced logistic-regression baselines from scikit-learn \cite{pedregosa2011scikit}. Reported metrics are accuracy, F1 (macro F1 for multi-class), and ROC-AUC (binary or one-vs-rest macro) \cite{fawcett2006roc}, with a real-trained reference model computed in parallel.
 
 \subsection{Statistical Quality Metrics}
 
@@ -153,7 +109,7 @@ The per-row metrics above assess marginal fidelity but cannot detect temporal in
     \item \textbf{Temporal cross-feature correlation drift} (\code{temporal\_corr\_drift}): For clinically meaningful feature pairs (heart rate vs.\ MAP, systolic vs.\ diastolic BP, SpO\textsubscript{2} vs.\ respiratory rate), the within-trajectory Pearson correlation is computed per patient, and the metric reports the mean absolute difference in median correlation between real and synthetic data. This captures whether the generator preserves physiological relationships \emph{within} individual trajectories, not just in aggregate.
 \end{enumerate}
 
-These metrics are computed before per-row quality metrics in the sweep loop, using the raw DataFrames that retain \code{subject\_id} and \code{hours\_in} for grouping. Trajectories shorter than four timesteps are excluded to ensure stable autocorrelation estimates. Seed-level uncertainty (mean, standard deviation, CI95) is defined in the \code{SWEEP\_RESULT\_COLUMNS} schema and is populated whenever the trajectory-sampling seed list \code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS} in \code{run\_sweep.py} has length greater than one. Each entry in that list drives both the trajectory-sampling RNG and the evaluator \code{random\_state} (real/synthetic train-test split, real-baseline classifier, and privacy-attack subsampling), so the reported \code{\_std} and \code{\_ci95} columns reflect compounded trajectory and evaluator variance rather than trajectory variance alone. In the current canonical CSV snapshot, the HS3F main grid is aggregated over three seeds per cell (\code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS=(42,11,50)}).
+These metrics are computed on trajectory-indexed data before per-row quality aggregation. Short trajectories are excluded where required for stable autocorrelation estimates. Uncertainty columns (\code{*\_std}, \code{*\_ci95}) are populated from multi-seed aggregation; in the current main grid, each cell is averaged over three seeds.
 
 \subsection{Model-Screening Guardrail}
 
@@ -339,12 +295,12 @@ Training time (single cell) & $68{,}037$\,s ($n_t{=}34, n_{\text{noise}}{=}34$) 
 \label{tab:sweep_pred}
 \end{table}
 
-Beyond the HS3F main grid, a matched-cell protocol contrasts the two tree-based backbones against a neural reference baseline.
+Research Question~2 in Chapter~1 is framed as a \textbf{matched} comparison, not a full-grid multi-backbone matrix: the $8 \times 8$ sweep above characterises \emph{HS3F} only. The head-to-head evidence for all-continuous versus heterogeneous routing on the same ICU tables is therefore gathered at a single pre-specified cell, with CTGAN included as a neural reference lower bound.
 
 \subsection{Backbone Comparison and CTGAN Baseline}
 \label{sec:backbone-comparison}
 
-To directly contrast the two tree-based backbones and a neural reference baseline, \code{scripts/run\_backbone\_comparison.py} executes HS3F, ForestFlow, and CTGAN at a shared cell $(n_t{=}5, n_{\text{noise}}{=}5)$ with identical training rows ($50{,}000$), synthetic sample budget ($50{,}000$), and three trajectory seeds per backbone. CTGAN is adapted through \code{src/lexisflow/models/ctgan\_adapter.py} into the same training and evaluation interface; it is trained on the transformed joint table and sampled without per-row autoregressive conditioning, providing a pragmatic lower-bound reference rather than a matched autoregressive competitor (see section \textbf{Baseline Scope and Interpretation}). Table~\ref{tab:backbone-matched} summarises the matched-cell outcomes.
+\code{scripts/run\_backbone\_comparison.py} runs HS3F, ForestFlow, and CTGAN at a shared cell $(n_t{=}5, n_{\text{noise}}{=}5)$ with identical training rows ($50{,}000$), synthetic sample budget ($50{,}000$), and three trajectory seeds per backbone. CTGAN is adapted through \code{src/lexisflow/models/ctgan\_adapter.py} into the same training and evaluation interface; it is trained on the transformed joint table and sampled without per-row autoregressive conditioning, providing a reference lower-bound comparator rather than a matched autoregressive competitor (see section \textbf{Baseline Scope and Interpretation}). Table~\ref{tab:backbone-matched} summarises the matched-cell outcomes.
 
 \begin{table}[htbp]
 \centering
@@ -436,7 +392,7 @@ Fourth, \textbf{clinical-range violation is the most serious single finding in t
 
 Fifth, \textbf{the privacy picture is cautiously positive but deserves care}. Exact-match rate is zero, DCR baseline protection is saturated at $1.0$, and membership-inference AUC is $\approx 0.60$ (above random but well below the $0.7$--$0.8$ bands typically cited for clear leakage). However, DCR can be flattered by overall distributional drift, the same drift the quality metrics make visible, so the privacy advantage is partly a side-effect of the utility shortfall. A meaningfully higher-utility generator would likely show a meaningfully worse privacy profile; the utility--privacy trade-off should be re-measured at that operating point.
 
-Taken together, the evidence supports running the production configuration as a one-off sanity check but does not support it as an efficient operating point. A better-justified production cell, under the assumptions of the current architecture, would sit near $(n_t, n_{\text{noise}}){\approx}(8, 2)$, well inside the diminishing-returns region on utility, near the temporal-coherence sweet spot, and roughly two orders of magnitude cheaper to train than $(50, 100)$. Further gains beyond that would most likely come from architectural changes (variable-length generation, range-aware loss, smoothness regulariser) rather than additional grid search. The backbone comparison above supports HS3F as the fixed backbone for any such operating point.
+Taken together, the evidence supports running the production configuration as a single validation run but does not support it as an efficient operating point. A better-justified production cell, under the assumptions of the current architecture, would sit near $(n_t, n_{\text{noise}}){\approx}(8, 2)$, well inside the diminishing-returns region on utility, near the temporal-coherence sweet spot, and roughly two orders of magnitude cheaper to train than $(50, 100)$. Further gains beyond that would most likely come from architectural changes (variable-length generation, range-aware loss, smoothness regulariser) rather than additional grid search. The backbone comparison above supports HS3F as the fixed backbone for any such operating point.
 
 \subsection{Goal Status: Met, Partial, Not Met}
 
@@ -474,7 +430,7 @@ Encoded categories and rare events may dominate apparent TSTR scores (e.g., accu
 \subsection{Internal validity}
 
 \paragraph{Confounding by configuration and compute.}
-The sweep varies both $n_t$ and $n_{\text{noise}}$, but wall-clock differences (e.g., training time varies from $\approx 3$ minutes to over six hours) can couple ``better'' metrics with unequal optimisation budgets unless training is stopped by a common criterion.
+The sweep varies both $n_t$ and $n_{\text{noise}}$, but wall-clock differences (e.g., training time varies from $\approx 3$ minutes to $\approx 18.9$ hours in the most expensive cell) can couple ``better'' metrics with unequal optimisation budgets unless training is stopped by a common criterion.
 \textbf{Mitigations:} per-stage timings and degeneracy annotation are logged; interpretation already warns against ranking on this CSV alone.
 \textbf{Gaps:} no matched early-stopping or compute-matched comparison protocol in the sweep.
 
@@ -486,7 +442,7 @@ Seeds and artefact paths support repeat runs, but the transformed-data cache (\c
 \paragraph{Evaluation leakage and split stability.}
 TSTR and quality metrics depend on how real/synthetic splits are formed; any overlap between training generator inputs and evaluation cohorts would inflate utility.
 \textbf{Mitigations:} the chapter ties evaluation to the implemented split conventions in \code{tstr\_framework} and preprocessor indices.
-\textbf{Gaps:} formal independence guarantees across hour-0, autoregressive training, and TSTR splits should be audited line-by-line for each experiment script version.
+\textbf{Gaps:} formal independence guarantees across hour-0, autoregressive training, and TSTR splits should be verified explicitly for each experiment script version.
 
 \subsection{External validity}
 
@@ -524,13 +480,16 @@ To probe pipeline portability beyond MIMIC-III, the implementation additionally 
 The Challenge 2012 sweep is in progress and intentionally not included in the numerical tables and figures of this chapter. Reporting its outcomes before sweep completion would risk partial-cell results distorting per-metric comparisons with the MIMIC sweep; the unified schema (\code{results/sweep\_results.csv}) is designed to accommodate the new runs without retrofitting the analysis pipeline.
 
 \paragraph{What this benchmark does and does not establish.}
-The Challenge 2012 run is a \emph{methodological} robustness check: it establishes that the generator, preprocessor, and evaluation stack operate on a semantically adjacent cohort (static demographics + hourly vital medians + mortality/LOS labels) under an open data licence, making external reproduction possible. It is not a claim of clinical generalisation; cross-hospital or cross-speciality validity would require additional cohorts outside the scope of this dissertation.
+The Challenge 2012 run is a reproducibility supplement, not part of the dissertation's evidential core. It shows that the same generator, preprocessor, and evaluation stack can be executed end-to-end on a semantically adjacent open cohort (static demographics + hourly vital medians + mortality/LOS labels). The core empirical claims in this chapter are based on MIMIC-III. Challenge 2012 is therefore reported as methodological portability support rather than as evidence for clinical generalisation; cross-hospital or cross-speciality validity would require additional cohorts beyond scope.
+
+\paragraph{Metric-reading caveats for Challenge 2012.}
+Two implementation-dependent caveats should be stated explicitly for interpretation. (i) In the current Challenge pipeline, both real and synthetic tables are represented as fixed 48-hour windows; therefore \code{stay\_length\_ks} is expected to be near $0$ and is not a discriminative indicator of variable-length trajectory fidelity in this setting. (ii) Elevated \code{range\_violation\_pct} values on Challenge can partly reflect implausible measurements already present in the real cohort (notably blood-pressure zeros/outliers), so this metric should be read as a combined signal of source-data quality and generator behaviour rather than as a pure model-failure score.
 
 %==============================================================================
 \section{Requirements Verification}
 %==============================================================================
 
-This section traces each requirement from Chapter~3 to the evidence that verifies it. Where a requirement is only partially verified, the residual gap is stated explicitly rather than claimed away.
+This section traces each requirement from Chapter~3 to the evidence that verifies it. Where a requirement is only partially verified, the residual gap is stated explicitly rather than obscured.
 
 \subsection{Functional Requirements}
 
@@ -577,11 +536,11 @@ FR9 & Verified & Plot artefacts present in \code{results/sweep\_plots/} and refe
 \midrule
 NFR1 & Verified & Deterministic seed lists (\code{TSTR\_TRAJECTORY\_SAMPLING\_SEEDS}) drive generation and evaluators; canonical CSV schemas enforced via \code{SWEEP\_RESULT\_COLUMNS}; repeat runs produce matching rows. \\
 \midrule
-NFR2 & Verified & All completed sweep cells were run on CPU-only hardware; no CUDA dependency in training scripts; training-time table reports wall-clock between $\approx 3$\,min and $\approx 6$\,h per cell. \\
+NFR2 & Verified & All completed sweep cells were run on CPU-only hardware; no CUDA dependency in training scripts; the sweep-time table reports wall-clock between $\approx 3$\,min and $\approx 18.9$\,h per cell (upper bound: $(n_t,n_{\text{noise}}){=}(34,34)$; see Figure~\ref{fig:sweep_time}). \\
 \midrule
 NFR3 & Verified & \code{.gitignore} excludes raw MIMIC-III tables and credentialed artefacts; repository inspection confirms no patient data is committed. \\
 \midrule
-NFR4 & Verified & Streaming preprocessor and cached transformed matrices keep peak memory bounded; sweep completes on an $8\,$--$16$\,GB workstation. \\
+NFR4 & Verified & Met: streaming preprocessor fit, iterator-based training data supply, and optional transformed-matrix caching are implemented and used on the full MIMIC sweep in Chapter~7. That satisfies the stated \emph{should} (bounded-memory data access). The Supplementary Sweep Results appendix records the 32~GB run environment; the requirement does \emph{not} ask for a minimum-RAM certificate, only that the pipeline avoids assuming unbounded RAM in its design---which is verified here. \\
 \midrule
 NFR5 & Verified & Transform matrix caching keyed on source-table metadata and split-index hashes is active and reduces repeat-sweep cost; cache hits visible in sweep logs. \\
 \bottomrule

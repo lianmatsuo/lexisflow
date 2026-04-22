@@ -66,9 +66,9 @@
 
 Healthcare data is difficult to share and model reliably at scale. Electronic Health Records (EHRs) combine mixed numerical and categorical variables, sparse and irregular dependencies, long-tailed outcomes, and domain rules that must be respected. Data-governance constraints under frameworks such as UK GDPR and the Data Protection Act 2018 further restrict access \cite{dataProtectionAct2018,icoResearchSafeguards}, while rare diseases and minority subpopulations create severe data scarcity and class imbalance. These weaknesses in real-world data availability and coverage are a core reason synthetic data generation is actively studied in healthcare.
 
-Synthetic tabular generation offers a promising path to address privacy, scarcity, and imbalance, but current methods still struggle with full clinical complexity. Generative Adversarial Networks (GANs) are prone to mode collapse and can lose rare patterns; Variational Autoencoders (VAEs) may oversmooth heterogeneous distributions; and neural diffusion models often require heavier GPU resources while still needing careful handling of categorical and structural constraints.
+Synthetic tabular generation can mitigate privacy and scarcity constraints, but common families still face limitations on mixed-type clinical data. GANs can underrepresent rare patterns, VAEs can oversmooth heterogeneous structure, and neural diffusion models often demand higher compute while requiring careful handling of categorical constraints.
 
-Recent work on tree-based flow matching, notably ForestFlow \cite{jolicoeur2023forest} and Heterogeneous Sequential Feature Forest Flow (HS3F) \cite{akazan2024hs3f}, provides evidence that gradient-boosted decision-tree ensembles can serve as the flow-field approximator in place of neural networks for mixed-type tabular synthesis. Trees partition feature space into locally homogeneous regions that better match tabular structure, while avoiding much of the computational overhead of deep backbones.
+Recent tree-based flow-matching work, especially ForestFlow \cite{jolicoeur2023forest} and HS3F \cite{akazan2024hs3f}, shows that gradient-boosted trees can approximate flow fields effectively for mixed-type tabular synthesis. This is directly relevant to ICU trajectories because tree partitions better match tabular heterogeneity and enable CPU-feasible training.
 
 This project applies tree-based flow matching to sequential ICU patient trajectories derived from the MIMIC-III clinical database \cite{johnson2016mimic}. Unlike prior work that evaluates ForestFlow and HS3F on static, single-row tabular benchmarks, this project extends the approach to an autoregressive setting: a two-stage architecture where an independent and identically distributed (IID) hour-0 model generates initial patient states and a conditional model generates subsequent hourly transitions given lagged dynamics and static covariates. Two model backbones are implemented and compared: ForestFlow (all-continuous flow) and HS3F (heterogeneous sequential generation with separate continuous and categorical heads).
 
@@ -94,7 +94,7 @@ This aim is operationalised through four concrete objectives:
 
 \begin{description}[leftmargin=0cm,labelsep=0.6em]
     \item[Domain adaptation:] Extend ForestFlow \cite{jolicoeur2023forest} and HS3F \cite{akazan2024hs3f}, tree-based flow-matching models originally evaluated on static tabular benchmarks, to sequential clinical data via an autoregressive two-stage architecture comprising an IID hour-0 model for initial patient states and a conditional transition model for subsequent hourly dynamics.
-    \item[Backbone implementation and comparison:] Implement both ForestFlow and HS3F within a unified training and evaluation interface to enable empirical comparison of all-continuous versus heterogeneous sequential generation on mixed-type ICU data.
+    \item[Backbone implementation and comparison:] Implement both ForestFlow and HS3F within a unified training and evaluation interface so they can be compared under \textbf{identical} MIMIC preparation, data budgets, and evaluation code; the systematic hyperparameter grid (see below) is used to \textbf{map HS3F} over $(n_t, n_{\text{noise}})$, while the head-to-head evidence plan for all-continuous versus heterogeneous routing is a \textbf{pre-specified matched cell} (with CTGAN as a non-autoregressive reference), not a full per-cell multi-backbone matrix.
     \item[Multi-axis evaluation framework:] Develop a reproducible evaluation stack covering (i) distributional fidelity via Kolmogorov--Smirnov statistics, correlation preservation, and clinical range violation rates; (ii) downstream utility via multi-task Train-on-Synthetic, Test-on-Real (TSTR) evaluation covering patient-level mortality prediction and ICU length-of-stay (LOS) prediction; and (iii) privacy risk via Distance-to-Closest-Record diagnostics and DOMIAS-style membership inference attacks \cite{breugel2023domias}.
     \item[Systematic hyperparameter investigation:] Evaluate the effect of key flow-matching hyperparameters ($n_t$, $n_{\text{noise}}$) on synthetic data quality, utility, and computational cost via a reproducible, resumable grid sweep.
 \end{description}
@@ -104,7 +104,7 @@ The objectives above are evaluated through the following specific research quest
 
 \begin{description}[leftmargin=0cm,labelsep=0.6em]
     \item[Feasibility:] Can tree-based flow matching, originally evaluated on static tabular benchmarks, be extended to generate realistic sequential ICU trajectories via autoregressive conditioning?
-    \item[Heterogeneous features:] Within the evaluated sweep settings and matched comparison cells, does HS3F's explicit separation of continuous and categorical generation heads improve fidelity over ForestFlow's all-continuous approach on mixed-type clinical data?
+    \item[Heterogeneous features (matched backbones):] At a fixed, shared hyperparameter cell with identical MIMIC cohort, training budget, and trajectory seeds, how do fidelity- and utility-relevant metrics compare between HS3F (explicit continuous/categorical heads) and ForestFlow (all-continuous flow) on the same mixed-type autoregressive tables? (The $8 \times 8$ sweep in this thesis \textbf{characterises HS3F} over $(n_t, n_{\text{noise}})$; it is not, and is not presented as, a grid in which every cell reruns all backbones. Evidence for the backbone question is the matched design in section~\ref{sec:backbone-comparison}.)
     \item[Utility and privacy:] Do synthetic trajectories preserve sufficient downstream predictive signal (TSTR) while maintaining acceptable privacy-risk indicators under proximity-based and attack-based diagnostics?
 \end{description}
 
@@ -186,11 +186,6 @@ IEEE International Conference on Data Science and Advanced Analytics Workshops.
 \newline
 Project ecosystem: \url{https://github.com/sdv-dev}.
 (Accessed: 20 April 2026).
-
-\bibitem{ieee29148Requirements2018}
-ISO/IEC/IEEE 29148:2018.
-\textit{Systems and software engineering ,  Life cycle processes ,  Requirements engineering}.
-International standard.
 
 \bibitem{agileBusinessConsortiumMoSCoW}
 Agile Business Consortium.
@@ -390,8 +385,8 @@ arXiv:2302.00482.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Appendices
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\appendix
-\include{Appendices/appendix}
-\include{Appendices/UserGuide}
-\include{Appendices/SourceCode}
+% List appendices in TOC only; full content is in lexisflow_appendices.pdf.
+\addcontentsline{toc}{chapter}{Appendix A: Supplementary Sweep Results}
+\addcontentsline{toc}{chapter}{Appendix B: User Guide}
+\addcontentsline{toc}{chapter}{Appendix C: Source Code}
 \end{document}

@@ -21,6 +21,16 @@ from lexisflow.data import TabularPreprocessor, identify_feature_types
 # are retained as features so they survive the inverse transform in downstream
 # synthetic DataFrames (required by MortalityTask / LOSTask).
 EXCLUDE_COLS = {"subject_id", "hours_in"}
+EXCLUDE_NOISY_COLS = {
+    "Temp",
+    "PaO2",
+    "PaCO2",
+    "ALP",
+    "SaO2",
+    "Glucose",
+    "Platelets",
+    "Height",
+}
 
 
 def main() -> None:
@@ -49,7 +59,9 @@ def main() -> None:
     df = pd.read_csv(args.input_path, low_memory=False)
     print(f"\nLoaded: {df.shape[0]:,} rows × {df.shape[1]} columns")
 
-    feature_cols = [c for c in df.columns if c not in EXCLUDE_COLS]
+    feature_cols = [
+        c for c in df.columns if c not in EXCLUDE_COLS and c not in EXCLUDE_NOISY_COLS
+    ]
     print(f"Feature columns ({len(feature_cols)}): {feature_cols}")
 
     feature_types = identify_feature_types(df, columns=feature_cols)

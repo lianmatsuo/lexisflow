@@ -1,15 +1,20 @@
 \chapter{Design Specification and Current System Architecture}
 \label{ch:design}
 
+This chapter establishes the architectural decisions that shape the generator and evaluation interface. Command-line driving, configuration defaults, resumable sweep drivers, and repository layout are documented in the User Guide (companion appendix). Chapter~\ref{ch:implementation} records only what is needed to interpret methods, metrics, and reported results.
+
 %==============================================================================
 \section{Data Pipeline and Representation}
 %==============================================================================
 
 \subsection{Source and Canonical Input}
+\label{sec:mimic-preprocess-contract}
 
 The operational pipeline starts from hourly ICU tables derived from MIMIC-III \cite{johnson2016mimic}
-through a MIMIC-Extract style workflow \cite{wang2020mimicextract}. The canonical training input for autoregressive modelling is \code{data/processed/autoregressive\_data.csv}.
-Hour-0 training uses \code{data/processed/hour0\_data.csv}.
+through this project's preprocessing path: patient-level cohort filtering, hourly
+binning/aggregation, static/dynamic feature split, and lag-feature table
+construction, following MIMIC-Extract representation conventions
+\cite{wang2020mimicextract}. The system uses separate hour-0 and autoregressive tables under a shared preprocessing contract.
 
 \subsection{Autoregressive Transformation}
 
@@ -21,10 +26,7 @@ With lag-1 engineering, each row at time $t$ uses:
 \end{align}
 
 \paragraph{Lag-0 and missing lag cells (implemented).}
-The autoregressive table is built by sorting on subject identifier and hour index and, for each dynamic column, producing a lag-1 feature by shifting within each subject group.
-\textbf{Lag-0 (no in-group history).} The first row of each subject has no prior row in that group, so the lag feature is undefined before filling.
-\textbf{Fill strategy and value.} Undefined lag entries are replaced by the float sentinel $-1.0$, yielding a dense, rectangular lag feature matrix (see Implementation chapter for the concrete pipeline step and parameters).
-The same fill applies to missing entries arising when $t-1$ exists but the source value at $t-1$ was missing: the shift propagates the missing marker, which is then indistinguishable from lag-0 after filling.
+Lag-1 conditioning leaves the first timestep per patient without prior history; this undefined lag state is represented with a shared sentinel value ($-1.0$) so the training matrix remains dense and rectangular. The same marker is used when prior-hour values are missing, so ``no prior timestep'' and ``prior value missing'' are not separated at this stage.
 
 \paragraph{Rationale and risks.}
 The sentinel keeps a dense, rectangular lag feature matrix so hour~0 rows remain in the autoregressive CSV and need not be dropped for lack of history; the IID hour-0 pipeline can still model the initial state separately.
@@ -32,14 +34,7 @@ Risks: \code{-1.0} is not a reserved missing code in the raw feature space and i
 
 \subsection{Column Roles Persisted as Metadata}
 
-The preprocessor artifact stores:
-\begin{itemize}\tightlist
-    \item \code{target\_cols} (semantic generation outputs),
-    \item \code{condition\_cols} (semantic conditioning inputs),
-    \item \code{target\_indices} and \code{condition\_indices} in transformed space.
-\end{itemize}
-
-This design persists both semantic columns and transformed indices because transformed column order is type-grouped (numeric, binary, categorical), not semantic target-then-condition order.
+The preprocessor stores both semantic role definitions (target versus condition columns) and transformed-space index mappings. This is necessary because transformed output is grouped by feature type rather than by semantic generation order.
 
 %==============================================================================
 \section{Tabular Preprocessor Design}
@@ -355,9 +350,14 @@ The architecture is intentionally two-stage:
 \end{enumerate}
 
 This decomposition separates structural initialization from transition dynamics more explicitly than a single model that must infer both jointly.
+In the current study design, trajectories are generated on a fixed 48-hour horizon, which simplifies comparability across runs but limits stay-length realism.
 
 \paragraph{Sweep-level design.}
-Sweep-level design, the hyperparameter protocol, transformed-matrix caching, and canonical result schema, is part of the operational pipeline rather than the generator architecture, and is specified in the Implementation chapter (see~\ref{sec:unified-sweep}).
+The $(n_t, n_{\text{noise}})$ grid, transformed-matrix caching, and canonical sweep result schema are operational rather than architectural; a short summary sufficient for reading results appears in Chapter~\ref{ch:implementation} (\ref{sec:unified-sweep}). Full CLI options, profiles, and driver controls are in the User Guide (companion appendix).
+
+\subsection{Design Implications for Evaluation Outcomes}
+
+Several downstream failure modes in Chapter~7 follow directly from design choices documented here. First, the fixed 48-hour rollout horizon constrains stay-length fidelity and contributes to the LOS utility gap. Second, shared lag sentinels for both lag-0 and prior-hour missingness introduce ambiguity in conditional context, which can degrade marginal fidelity. Third, continuous-flow handling of quantitative coordinates without explicit range constraints increases exposure to out-of-range synthetic values, which is reflected in elevated clinical range-violation rates. These links are causal design bounds rather than post-hoc interpretation.
 
 %==============================================================================
 \section{Design Rationale and Trade-offs}

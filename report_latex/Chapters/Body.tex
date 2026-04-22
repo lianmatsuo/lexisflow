@@ -7,7 +7,9 @@ This chapter establishes the mathematical and modelling foundations for the proj
 %==============================================================================
 
 ICU trajectories derived from MIMIC-III \cite{johnson2016mimic} are modelled
-through the MIMIC-Extract style hourly representation pipeline \cite{wang2020mimicextract}.
+through the preprocessing contract defined in
+section~\ref{sec:mimic-preprocess-contract} (Design chapter), aligned with
+MIMIC-Extract representation conventions \cite{wang2020mimicextract}.
 For patient $i$, let:
 \begin{itemize}\tightlist
     \item $\mathbf{s}_i \in \mathbb{R}^{d_s}$: static covariates (demographics/admission context),

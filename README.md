@@ -4,7 +4,7 @@ Generate synthetic ICU patient data using **Forest-Flow** — a state-of-the-art
 
 ## Features
 
-- **🆕 Fully synthetic generation:** Hour-0 model generates initial patient states without real data
+- **Fully synthetic generation:** Hour-0 model generates initial patient states without real data
 - **Autoregressive trajectories:** Generate realistic patient timelines with temporal continuity
 - **No GPU required:** Trains on CPUs using XGBoost
 - **Handles missing data natively:** XGBoost learns optimal missing value handling
@@ -64,12 +64,6 @@ uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
 └─────────────────┘
 ```
 
-**Benefits:**
-- ✅ Fully synthetic (privacy-preserving)
-- ✅ Unlimited generation capacity
-- ✅ No real data required as input
-- ✅ Controllable demographics (future: conditional generation)
-
 See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for the implemented sweep lifecycle and outputs.
 
 ### 4. Advanced: Hyperparameter Sweep
@@ -89,7 +83,7 @@ uv run python scripts/common/analyze_sweep.py
 uv run python scripts/common/analyze_sweep.py --dataset challenge2012
 ```
 
-**🆕 Unified Pipeline Command:**
+**Unified Pipeline Command:**
 `scripts/run_sweep.py` is the single public entrypoint. It automatically runs
 prepare scripts, preprocessor fitting, and then the sweep.
 
@@ -115,10 +109,10 @@ The sweep still trains **both models** with identical hyperparameters:
 ### 5. Public Reproducibility Example (no MIMIC access required)
 
 MIMIC-III requires credentialed PhysioNet access. For reviewers without it,
-`scripts/challenge2012/` runs the full pipeline on the **PhysioNet Challenge
-2012** ICU benchmark (ODC-BY, open access) using the same column schema so
-all TSTR / quality / temporal / privacy metrics work unchanged. See
-[scripts/challenge2012/README.md](scripts/challenge2012/README.md).
+the project includes a full pipeline on the **PhysioNet Challenge 2012** ICU
+benchmark (ODC-BY, open access) using the same column schema so all TSTR /
+quality / temporal / privacy metrics work unchanged. See
+[docs/challenge2012.md](docs/challenge2012.md).
 
 ```bash
 uv run python scripts/run_sweep.py --dataset challenge2012
@@ -133,33 +127,8 @@ uv run python scripts/run_sweep.py --dataset challenge2012
 | [PROJECT_ARCHITECTURE.md](docs/architecture/PROJECT_ARCHITECTURE.md) | Implementation-only system architecture |
 | [scripts/WORKFLOW.md](scripts/WORKFLOW.md) | Complete workflow guide & script usage |
 | [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) | Sweep execution flow, schema, cache, and outputs |
-| [scripts/challenge2012/README.md](scripts/challenge2012/README.md) | Public reproducibility example (Challenge 2012) |
+| [docs/challenge2012.md](docs/challenge2012.md) | Public reproducibility guide (Challenge 2012) |
 | [report_latex/](report_latex/) | LaTeX thesis |
-
-## Code Quality Improvements
-
-Recent complexity reduction efforts have significantly improved code maintainability:
-
-### ✅ Completed Simplifications
-1. **Unified data format:** Single CSV format (removed Parquet/memmap code paths)
-2. **Centralized preprocessor:** Single canonical location (`artifacts/preprocessor_full.pkl`)
-3. **Flattened column names:** Tuple columns like `('Heart Rate', 'mean')` → string `'Heart_Rate_mean'`
-4. **Centralized feature detection:** New `feature_utils.py` module eliminates code duplication
-5. **Removed legacy files:** Cleaned up outdated code and documentation
-
-### Feature Utilities Module
-The `src/lexisflow/data/feature_utils.py` module provides centralized utilities:
-- `flatten_column_names()` - Convert tuple columns to strings
-- `is_lagged()` - Detect lagged features
-- `is_binary_feature()` - Identify binary 0/1 features
-- `identify_feature_types()` - Classify numeric/binary/categorical columns
-- `KNOWN_BINARY_FEATURES` - Clinical binary features from domain knowledge
-
-**Benefits:**
-- 30-40% less code to maintain
-- Consistent feature detection across scripts
-- Easier testing and onboarding
-- Fewer edge cases and bugs
 
 ## Testing
 
@@ -225,17 +194,6 @@ lexisflow/
 ├── results/                     # Generated outputs
 ├── report_latex/                # LaTeX thesis
 └── docs/                        # Documentation
-```
-
-**🎉 Clean Import Structure:**
-```python
-# Professional, modular imports
-from lexisflow.data.transformers import TabularPreprocessor
-from lexisflow.data.autoregressive import prepare_autoregressive_data
-from lexisflow.models.forest_flow import ForestFlow
-from lexisflow.models.sampling import sample_trajectory
-from lexisflow.evaluation.quality_metrics import compute_quality_metrics
-from lexisflow.mortality.model import MortalityClassifier
 ```
 
 ## Key Parameters

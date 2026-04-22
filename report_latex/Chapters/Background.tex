@@ -88,7 +88,7 @@ Each feature’s model is conditioned on all previously generated features, enab
 On standard tabular benchmarks, HS3F matches or outperforms ForestFlow on datasets with substantial categorical content, while maintaining comparable performance on purely continuous datasets. The sequential feature generation adds computational cost proportional to the number of features, but avoids the noise-and-rounding artefacts that degrade ForestFlow’s categorical fidelity.
 
 \subsubsection{Relevance to This Project}
-HS3F is directly relevant because ICU data from MIMIC-III contains a mixture of continuous vital signs, binary intervention flags, and categorical variables. The project implements both ForestFlow and HS3F as selectable backbones, allowing empirical comparison of the two approaches on clinical data where categorical fidelity is clinically meaningful (e.g., binary ventilation status, categorical diagnosis codes).
+HS3F is directly relevant because ICU data from MIMIC-III contains a mixture of continuous vital signs, binary intervention flags, and categorical variables. The project implements both ForestFlow and HS3F as selectable backbones and compares them under a matched design on the same MIMIC preparation (Chapter~7), while the main hyperparameter grid characterises HS3F only.
 
 \subsection{MIMIC-III and the MIMIC-Extract Pipeline}
 
@@ -105,7 +105,7 @@ The choice of MIMIC-III via MIMIC-Extract provides a well-studied, high-dimensio
 To test pipeline portability beyond a single credentialed source, this project also includes the PhysioNet/Computing in Cardiology Challenge 2012 set-A cohort \cite{silva2012challenge}. In contrast to MIMIC-III's broad hospital EHR coverage, Challenge 2012 is a narrower ICU benchmark centred on the first 48 hours, with static demographics, hourly clinical measurements, and in-hospital outcome labels. Within this dissertation, Challenge 2012 is used as the second dataset for reproducibility and cross-dataset method validation under the same downstream training and evaluation stack.
 
 \subsection{Existing Synthetic Tabular and EHR Generators}
-This project evaluates HS3F and ForestFlow directly, with CTGAN as a practical lower-bound reference within the same data and metric pipeline. Other families (diffusion and transformer generators) are discussed as context for trade-offs rather than as implemented competitors.
+This project evaluates HS3F against ForestFlow in a pre-specified matched cell, with CTGAN as a practical lower-bound reference within the same data and metric pipeline; the sweep study is HS3F-only. Other families (diffusion and transformer generators) are discussed as context for trade-offs rather than as implemented competitors.
 
 The comparison criteria used throughout this dissertation are:
 \begin{itemize}\tightlist

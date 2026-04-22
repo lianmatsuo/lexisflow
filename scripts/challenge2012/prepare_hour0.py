@@ -28,9 +28,20 @@ import pandas as pd
 from tqdm import tqdm
 
 
-STATIC_PARAMS = ["Age", "Gender", "Height", "Weight", "ICUType"]
+STATIC_PARAMS = ["Age", "Gender", "Weight", "ICUType"]
 # Dropped per sparsity audit (<10% coverage across 4000 patients):
 DROP_PARAMS = {"TroponinI", "Cholesterol"}
+# Utility-focused denoising: weak outcome signal + high synthetic drift.
+DROP_PARAMS |= {
+    "Temp",
+    "PaO2",
+    "PaCO2",
+    "ALP",
+    "SaO2",
+    "Glucose",
+    "Platelets",
+    "Height",
+}
 # Sentinel for missing static values in raw files
 MISSING_SENTINEL = -1
 
