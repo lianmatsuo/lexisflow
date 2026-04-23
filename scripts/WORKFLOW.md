@@ -22,6 +22,8 @@ All other scripts in `scripts/mimic/`, `scripts/challenge2012/`, and
 | `mimic/*.py` | MIMIC-specific internal pipeline scripts called by `run_sweep.py --dataset mimic`. |
 | `challenge2012/*.py` | Challenge 2012 internal scripts called by `run_sweep.py --dataset challenge2012`. |
 | `common/analyze_sweep.py` | Heatmaps, line plots, and extrapolation fits from sweep results CSVs. |
+| `common/evaluate_hour0_models.py` | Post-sweep hour-0-only fidelity diagnostics (no rollout/TSTR), with fixed real sample and multi-seed synthetic averaging. |
+| `common/analyze_hour0_diagnostics.py` | Heatmaps/line charts/summary for hour-0 diagnostics CSVs. |
 | `common/analyze_column_coverage.py` | Streaming non-null / distribution stats per column. |
 | `common/analyze_column_removal.py` | Build removal recommendations from coverage stats. |
 
@@ -45,6 +47,48 @@ uv run python scripts/common/analyze_sweep.py --results-path results/challenge20
 The sweep is resumable: existing rows in the dataset-specific results CSV are
 skipped on rerun. Each cell runs TSTR three times with trajectory seeds
 `{42, 11, 50}` and reports mean / seed-level stdev / 95% CI half-width.
+
+### Hour-0 diagnostics (post-sweep)
+
+Run these **after** sweep completes, because they read saved hour-0 model
+artifacts (`hour0_nt*_noise*.pkl`) from `artifacts/.../sweep/`.
+
+```bash
+# MIMIC
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset mimic \
+  --models-dir artifacts/sweep \
+  --min-nt 1 --min-nnoise 1 \
+  --n-synth 5000 --n-real 5000 \
+  --seed 42 --synth-seeds 42,11,50 \
+  --output-csv results/hour0_diagnostics.csv
+
+uv run python scripts/common/analyze_hour0_diagnostics.py \
+  --results-path results/hour0_diagnostics.csv \
+  --output-dir results/hour0_diagnostics_plots
+
+# Challenge 2012
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset challenge2012 \
+  --models-dir artifacts/challenge2012/sweep \
+  --min-nt 1 --min-nnoise 1 \
+  --n-synth 5000 --n-real 5000 \
+  --seed 42 --synth-seeds 42,11,50 \
+  --output-csv results/challenge2012_hour0_diagnostics.csv
+
+uv run python scripts/common/analyze_hour0_diagnostics.py \
+  --results-path results/challenge2012_hour0_diagnostics.csv \
+  --output-dir results/challenge2012_hour0_diagnostics_plots
+
+# Optional bounded grid (example: nt <= 13, n_noise <= 13)
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset challenge2012 \
+  --models-dir artifacts/challenge2012/sweep \
+  --min-nt 1 --min-nnoise 1 --max-nt 13 --max-nnoise 13 \
+  --n-synth 5000 --n-real 5000 \
+  --seed 42 --synth-seeds 42,11,50 \
+  --output-csv results/challenge2012_hour0_diagnostics_nt13_noise13.csv
+```
 
 ## Artifact flow
 
