@@ -13,42 +13,68 @@ Generate synthetic ICU patient trajectories with **flow-matched gradient-boosted
 - **Privacy evaluation:** DCR diagnostics + membership inference risk
 - **Modular architecture:** Clean, professional package structure
 
-## Quick Start
+## User Guide
 
-### 1. Install
+This section is the single operational guide for installation, dataset setup,
+and running the pipeline. It follows the report appendix user guide and uses
+the unified entrypoint `scripts/run_sweep.py`.
+
+### 1. Prerequisites
+
+- Python 3.10+
+- `uv` (recommended) or `pip`
+- MIMIC-III credentialed access (only if using `--dataset mimic`)
+
+Install `uv` if needed:
 
 ```bash
-# Install uv if needed
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-# Install dependencies
+### 2. Installation
+
+From the repository root:
+
+```bash
 uv sync
 ```
 
-### 2. Run Complete Workflow (Single Command)
+Optional editable install with pip:
 
 ```bash
-# MIMIC pipeline: prepare data + fit preprocessors + run full sweep
-uv run python scripts/run_sweep.py --dataset mimic
-
-# Fast smoke preset for quick validation
-uv run python scripts/run_sweep.py --dataset mimic --profile smoke
-
-# Override CPU parallelism for the sweep stage
-uv run python scripts/run_sweep.py --dataset mimic --n-jobs 8
-
-# Optional: clear generated data/preprocessors/cache/results, then rerun
-uv run python scripts/run_sweep.py --dataset mimic --reset
+pip install -e .
 ```
 
-### 3. Public Reproducibility Workflow (Challenge 2012)
+Optional verification:
 
 ```bash
-# Public benchmark pipeline: same command surface, different dataset preset
-uv run python scripts/run_sweep.py --dataset challenge2012
+uv run pytest
+```
 
-# Public benchmark smoke run
-uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
+### 3. Dataset Setup
+
+#### MIMIC-III (credentialed)
+
+1. Obtain access via PhysioNet ([MIMIC access](https://mimic.physionet.org/gettingstarted/access/)).
+2. Download required MIMIC-III source tables.
+3. Run the same pipeline command below with `--dataset mimic`.
+
+#### PhysioNet Challenge 2012 (public, no credentialing)
+
+Download and install the dataset files into `data/challenge2012/raw`:
+
+```bash
+mkdir -p data/challenge2012/raw
+cd data/challenge2012/raw
+wget https://physionet.org/files/challenge-2012/1.0.0/set-a.tar.gz
+tar -xzf set-a.tar.gz
+wget https://physionet.org/files/challenge-2012/1.0.0/Outcomes-a.txt
+```
+
+Then return to the repo root and run:
+
+```bash
+uv run python scripts/run_sweep.py --dataset challenge2012 --reset --n-jobs 8
 ```
 
 **Two-Stage Architecture (per backbone):**
@@ -66,19 +92,28 @@ uv run python scripts/run_sweep.py --dataset challenge2012 --profile smoke
 
 See [docs/SWEEP_ARCHITECTURE.md](docs/SWEEP_ARCHITECTURE.md) for the implemented sweep lifecycle and outputs.
 
-### 4. Advanced: Hyperparameter Sweep
+### 4. Run the Pipeline (single command)
 
 ```bash
-# Full pipeline + sweep (MIMIC defaults)
+# Full pipeline + sweep (MIMIC)
 uv run python scripts/run_sweep.py --dataset mimic
 
-# Public benchmark pipeline + sweep (Challenge 2012)
+# Full pipeline + sweep (Challenge 2012)
 uv run python scripts/run_sweep.py --dataset challenge2012
 
-# Optional: clear generated data/preprocessors/cache/results before rerun
+# Fresh rerun (clears generated data/preprocessors/cache/results)
 uv run python scripts/run_sweep.py --dataset mimic --reset
 
-# Visualize results
+# Fast smoke validation
+uv run python scripts/run_sweep.py --dataset mimic --profile smoke
+
+# Override sweep-stage CPU worker count
+uv run python scripts/run_sweep.py --dataset mimic --n-jobs 8
+```
+
+To visualize completed sweep outputs:
+
+```bash
 uv run python scripts/common/analyze_sweep.py
 uv run python scripts/common/analyze_sweep.py --dataset challenge2012
 ```
@@ -110,64 +145,6 @@ The top-level command `scripts/run_sweep.py` forwards **`--profile`** and **`--n
 `uv run python scripts/challenge2012/run_sweep.py --model-type ctgan` (plus your usual `--profile` / `--n-jobs`).
 
 Some standalone MIMIC scripts still use the legacy filename `artifacts/hour0_forest_flow.pkl`; promote checkpoints from `artifacts/sweep/` if your workflow expects that path (see `scripts/WORKFLOW.md`).
-
-### 5. Experiment Reproduction (Sweep and Hour 0 Evaluation)
-
-Use this when you want to evaluate the hour-0 generator **without** rollout/TSTR
-to separate initial-state fidelity from autoregressive transition quality.
-The order is:
-1. run sweep (to produce `hour0_nt*_noise*.pkl` checkpoints),
-2. run hour-0 diagnostics evaluation,
-3. run hour-0 diagnostics visualization.
-
-```bash
-# MIMIC: run sweep first (produces hour-0 checkpoint artifacts)
-uv run python scripts/run_sweep.py --dataset mimic
-
-# Then evaluate all hour-0 sweep checkpoints, then visualize
-uv run python scripts/common/evaluate_hour0_models.py \
-  --dataset mimic \
-  --models-dir artifacts/sweep \
-  --min-nt 1 \
-  --min-nnoise 1 \
-  --n-synth 5000 \
-  --n-real 5000 \
-  --seed 42 \
-  --synth-seeds 42,11,50 \
-  --output-csv results/hour0_diagnostics.csv
-
-uv run python scripts/common/analyze_hour0_diagnostics.py \
-  --results-path results/hour0_diagnostics.csv \
-  --output-dir results/hour0_diagnostics_plots
-
-MIMIC-III requires credentialed PhysioNet access. For reviewers without it,
-the project includes a full pipeline on the **PhysioNet Challenge 2012** ICU
-benchmark (ODC-BY, open access) using the same column schema so all TSTR /
-quality / temporal / privacy metrics work unchanged. See
-[docs/challenge2012.md](docs/challenge2012.md).
-
-# Challenge 2012: run sweep first (public benchmark artifacts)
-uv run python scripts/run_sweep.py --dataset challenge2012
-
-# Then run the same hour-0 diagnostics flow
-uv run python scripts/common/evaluate_hour0_models.py \
-  --dataset challenge2012 \
-  --models-dir artifacts/challenge2012/sweep \
-  --min-nt 1 \
-  --min-nnoise 1 \
-  --n-synth 5000 \
-  --n-real 5000 \
-  --seed 42 \
-  --synth-seeds 42,11,50 \
-  --output-csv results/challenge2012_hour0_diagnostics.csv
-
-uv run python scripts/common/analyze_hour0_diagnostics.py \
-  --results-path results/challenge2012_hour0_diagnostics.csv \
-  --output-dir results/challenge2012_hour0_diagnostics_plots
-```
-
-To restrict the diagnostics grid (for example `nt <= 13`, `n_noise <= 13`), add:
-`--max-nt 13 --max-nnoise 13` to `evaluate_hour0_models.py`.
 
 ## Documentation
 
