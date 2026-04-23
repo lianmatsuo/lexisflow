@@ -58,6 +58,14 @@ def load_results(path: Path) -> pd.DataFrame:
     return df
 
 
+def _has_plottable_values(df: pd.DataFrame, col: str) -> bool:
+    """Return True if a metric column has at least one finite value."""
+    if col not in df.columns:
+        return False
+    series = pd.to_numeric(df[col], errors="coerce")
+    return np.isfinite(series).any()
+
+
 def _plot_metric_heatmaps(df: pd.DataFrame, output_dir: Path) -> None:
     specs: list[tuple[str, str]] = [
         ("avg_ks_stat", "Average KS (Lower = Better)"),
@@ -66,7 +74,7 @@ def _plot_metric_heatmaps(df: pd.DataFrame, output_dir: Path) -> None:
         ("range_violation_pct", "Range Violation % (Lower = Better)"),
         ("categorical_tv_mean", "Categorical TV Mean (Lower = Better)"),
     ]
-    available = [(col, title) for col, title in specs if col in df.columns]
+    available = [(col, title) for col, title in specs if _has_plottable_values(df, col)]
     if not available:
         print("No core metric columns found for heatmaps.")
         return
@@ -107,7 +115,7 @@ def _plot_metric_line_charts(df: pd.DataFrame, output_dir: Path) -> None:
         ("corr_frobenius", "Corr Frobenius"),
         ("wasserstein_scaled_mean", "Scaled Wasserstein"),
     ]
-    available = [(col, label) for col, label in specs if col in df.columns]
+    available = [(col, label) for col, label in specs if _has_plottable_values(df, col)]
     if not available:
         print("No line-chart metric columns found.")
         return
@@ -175,7 +183,7 @@ def _plot_uncertainty_heatmaps(df: pd.DataFrame, output_dir: Path) -> None:
         ("range_violation_pct_ci95", "Range Violation % CI95"),
         ("categorical_tv_mean_ci95", "Categorical TV Mean CI95"),
     ]
-    available = [(col, label) for col, label in specs if col in df.columns]
+    available = [(col, label) for col, label in specs if _has_plottable_values(df, col)]
     if not available:
         print("No CI95 columns found for uncertainty heatmaps.")
         return
