@@ -111,7 +111,34 @@ The top-level command `scripts/run_sweep.py` forwards **`--profile`** and **`--n
 
 Some standalone MIMIC scripts still use the legacy filename `artifacts/hour0_forest_flow.pkl`; promote checkpoints from `artifacts/sweep/` if your workflow expects that path (see `scripts/WORKFLOW.md`).
 
-### 5. Public Reproducibility Example (no MIMIC access required)
+### 5. Experiment Reproduction (Sweep and Hour 0 Evaluation)
+
+Use this when you want to evaluate the hour-0 generator **without** rollout/TSTR
+to separate initial-state fidelity from autoregressive transition quality.
+The order is:
+1. run sweep (to produce `hour0_nt*_noise*.pkl` checkpoints),
+2. run hour-0 diagnostics evaluation,
+3. run hour-0 diagnostics visualization.
+
+```bash
+# MIMIC: run sweep first (produces hour-0 checkpoint artifacts)
+uv run python scripts/run_sweep.py --dataset mimic
+
+# Then evaluate all hour-0 sweep checkpoints, then visualize
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset mimic \
+  --models-dir artifacts/sweep \
+  --min-nt 1 \
+  --min-nnoise 1 \
+  --n-synth 5000 \
+  --n-real 5000 \
+  --seed 42 \
+  --synth-seeds 42,11,50 \
+  --output-csv results/hour0_diagnostics.csv
+
+uv run python scripts/common/analyze_hour0_diagnostics.py \
+  --results-path results/hour0_diagnostics.csv \
+  --output-dir results/hour0_diagnostics_plots
 
 MIMIC-III requires credentialed PhysioNet access. For reviewers without it,
 the project includes a full pipeline on the **PhysioNet Challenge 2012** ICU
@@ -119,9 +146,28 @@ benchmark (ODC-BY, open access) using the same column schema so all TSTR /
 quality / temporal / privacy metrics work unchanged. See
 [docs/challenge2012.md](docs/challenge2012.md).
 
-```bash
+# Challenge 2012: run sweep first (public benchmark artifacts)
 uv run python scripts/run_sweep.py --dataset challenge2012
+
+# Then run the same hour-0 diagnostics flow
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset challenge2012 \
+  --models-dir artifacts/challenge2012/sweep \
+  --min-nt 1 \
+  --min-nnoise 1 \
+  --n-synth 5000 \
+  --n-real 5000 \
+  --seed 42 \
+  --synth-seeds 42,11,50 \
+  --output-csv results/challenge2012_hour0_diagnostics.csv
+
+uv run python scripts/common/analyze_hour0_diagnostics.py \
+  --results-path results/challenge2012_hour0_diagnostics.csv \
+  --output-dir results/challenge2012_hour0_diagnostics_plots
 ```
+
+To restrict the diagnostics grid (for example `nt <= 13`, `n_noise <= 13`), add:
+`--max-nt 13 --max-nnoise 13` to `evaluate_hour0_models.py`.
 
 ## Documentation
 
