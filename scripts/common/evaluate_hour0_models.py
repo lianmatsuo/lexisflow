@@ -115,6 +115,18 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Minimum n_noise to include (default: 1).",
     )
     parser.add_argument(
+        "--max-nt",
+        type=int,
+        default=None,
+        help="Maximum nt to include (default: no upper bound).",
+    )
+    parser.add_argument(
+        "--max-nnoise",
+        type=int,
+        default=None,
+        help="Maximum n_noise to include (default: no upper bound).",
+    )
+    parser.add_argument(
         "--n-synth",
         type=int,
         default=5000,
@@ -156,7 +168,11 @@ def _load_pickle(path: Path) -> Any:
 
 
 def _discover_hour0_models(
-    models_dir: Path, min_nt: int, min_nnoise: int
+    models_dir: Path,
+    min_nt: int,
+    min_nnoise: int,
+    max_nt: int | None,
+    max_nnoise: int | None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for p in sorted(models_dir.glob("hour0_nt*_noise*.pkl")):
@@ -166,6 +182,10 @@ def _discover_hour0_models(
         nt = int(m.group("nt"))
         nnoise = int(m.group("nnoise"))
         if nt < min_nt or nnoise < min_nnoise:
+            continue
+        if max_nt is not None and nt > max_nt:
+            continue
+        if max_nnoise is not None and nnoise > max_nnoise:
             continue
         rows.append({"path": p, "nt": nt, "n_noise": nnoise})
     rows.sort(key=lambda r: (r["nt"], r["n_noise"]))
@@ -450,11 +470,18 @@ def main() -> None:
             f"ERROR: hour-0 preprocessor not found: {hour0_preprocessor_path}"
         )
 
-    model_rows = _discover_hour0_models(models_dir, args.min_nt, args.min_nnoise)
+    model_rows = _discover_hour0_models(
+        models_dir,
+        args.min_nt,
+        args.min_nnoise,
+        args.max_nt,
+        args.max_nnoise,
+    )
     if not model_rows:
         raise SystemExit(
             f"ERROR: no matching hour-0 model files in {models_dir} "
-            f"for nt>={args.min_nt}, n_noise>={args.min_nnoise}."
+            f"for nt in [{args.min_nt}, {args.max_nt if args.max_nt is not None else 'inf'}], "
+            f"n_noise in [{args.min_nnoise}, {args.max_nnoise if args.max_nnoise is not None else 'inf'}]."
         )
 
     prep_payload = _load_pickle(hour0_preprocessor_path)
@@ -486,7 +513,8 @@ def main() -> None:
     print(f"Models dir: {models_dir}")
     print("Model filename pattern: hour0_nt*_noise*.pkl (non-recursive)")
     print(
-        f"Model filters: nt>={args.min_nt}, n_noise>={args.min_nnoise} "
+        f"Model filters: nt in [{args.min_nt}, {args.max_nt if args.max_nt is not None else 'inf'}], "
+        f"n_noise in [{args.min_nnoise}, {args.max_nnoise if args.max_nnoise is not None else 'inf'}] "
         "(autoregressive artifacts are excluded by filename)"
     )
     print(f"Hour-0 data: {hour0_data_path}")
