@@ -118,6 +118,63 @@ uv run python scripts/common/analyze_sweep.py
 uv run python scripts/common/analyze_sweep.py --dataset challenge2012
 ```
 
+### 5. Hour-0 Diagnostics Pipeline (post-sweep)
+
+Use this to evaluate hour-0 model fidelity in isolation (without trajectory
+rollout/TSTR). Run this only after Step 4 has produced sweep checkpoints
+(`hour0_nt*_noise*.pkl`) in the sweep artifact directory.
+
+```bash
+# MIMIC: evaluate then plot
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset mimic \
+  --models-dir artifacts/sweep \
+  --min-nt 1 \
+  --min-nnoise 1 \
+  --n-synth 5000 \
+  --n-real 5000 \
+  --seed 42 \
+  --synth-seeds 42,11,50 \
+  --output-csv results/hour0_diagnostics.csv
+
+uv run python scripts/common/analyze_hour0_diagnostics.py \
+  --results-path results/hour0_diagnostics.csv \
+  --output-dir results/hour0_diagnostics_plots
+
+# Challenge 2012: evaluate then plot
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset challenge2012 \
+  --models-dir artifacts/challenge2012/sweep \
+  --min-nt 1 \
+  --min-nnoise 1 \
+  --n-synth 5000 \
+  --n-real 5000 \
+  --seed 42 \
+  --synth-seeds 42,11,50 \
+  --output-csv results/challenge2012_hour0_diagnostics.csv
+
+uv run python scripts/common/analyze_hour0_diagnostics.py \
+  --results-path results/challenge2012_hour0_diagnostics.csv \
+  --output-dir results/challenge2012_hour0_diagnostics_plots
+```
+
+Optional bounded grid (example: `nt <= 13`, `n_noise <= 13`):
+
+```bash
+uv run python scripts/common/evaluate_hour0_models.py \
+  --dataset challenge2012 \
+  --models-dir artifacts/challenge2012/sweep \
+  --min-nt 1 \
+  --min-nnoise 1 \
+  --max-nt 13 \
+  --max-nnoise 13 \
+  --n-synth 5000 \
+  --n-real 5000 \
+  --seed 42 \
+  --synth-seeds 42,11,50 \
+  --output-csv results/challenge2012_hour0_diagnostics_nt13_noise13.csv
+```
+
 **Unified Pipeline Command:**
 `scripts/run_sweep.py` is the single public entrypoint. It automatically runs
 prepare scripts, preprocessor fitting, and then the sweep.
